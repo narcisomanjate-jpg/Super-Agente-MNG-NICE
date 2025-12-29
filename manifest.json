@@ -3,5 +3,9 @@
   "display_override": ["fullscreen", "minimal-ui"],
   "orientation": "portrait",
   "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "background_color": "#ffffff",
+  "name": "Super Agente MNG NICE",
+  "short_name": "Agente MNG",
+  "scope": "/Super-Agente-MNG-NICE/",
+  "start_url": "/Super-Agente-MNG-NICE/index.html"
 }
