@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  background-color: #0f172a;
+}
+
+.app-bg {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: -1;
+  /* Imagem de fallback caso esteja offline */
+  background-color: #0f172a;
+  background-image: url('https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=2832&auto=format&fit=crop');
+  background-size: cover;
+  background-position: center;
+  opacity: 0.15;
+  filter: blur(40px);
+}
+
+.glass {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
