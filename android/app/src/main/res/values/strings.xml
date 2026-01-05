@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">super-agente-mng-nice# 3. Gerar a build do Reactnpm run build</string>
+    <string name="title_activity_main">super-agente-mng-nice# 3. Gerar a build do Reactnpm run build</string>
+    <string name="package_name">com.nice.mng.agente.super</string>
+    <string name="custom_url_scheme">com.nice.mng.agente.super</string>
+</resources>

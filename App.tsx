@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   LayoutDashboard, 
@@ -12,7 +11,6 @@ import {
   ChevronRight, 
   ArrowUpRight, 
   ArrowDownLeft,
-  LogOut,
   ChevronLeft,
   Moon,
   Sun,
@@ -31,12 +29,39 @@ import {
   CreditCard,
   Palette,
   UserPlus,
-  AppWindow,
-  Archive
+  Archive,
+  Copy,
+  FileText
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Client, Transaction, UserProfile, AppSettings, ViewState, PaymentMethod, ArchivedAccount } from './types';
-import { INITIAL_CLIENTS, INITIAL_SETTINGS, translations, ALL_AVAILABLE_ACCOUNTS } from './constants';
+import { Client, Transaction, UserProfile, AppSettings, ViewState, PaymentMethod } from './types';
+import { INITIAL_SETTINGS, translations } from './constants';
+import localforage from 'localforage';
+
+// ⭐⭐ SOLICITAR ARMAZENAMENTO PERSISTENTE ⭐⭐
+const requestPersistentStorage = async () => {
+  try {
+    if (navigator.storage && navigator.storage.persist) {
+      const isPersisted = await navigator.storage.persisted();
+      console.log('📦 Armazenamento persistente atual:', isPersisted);
+      
+      if (!isPersisted) {
+        const permission = await navigator.storage.persist();
+        console.log('📦 Permissão para persistência concedida?', permission);
+        
+        if (permission) {
+          alert('✅ Armazenamento configurado como PERSISTENTE!\nSeus dados não serão apagados automaticamente.');
+        } else {
+          alert('⚠️ O navegador não concedeu persistência.\nOs dados PODEM ser apagados ao limpar o cache.');
+        }
+      }
+    } else {
+      console.warn('⚠️ Persistent Storage API não suportada');
+    }
+  } catch (error) {
+    console.error('❌ Erro ao solicitar armazenamento persistente:', error);
+  }
+};
 
 // --- Helper Functions ---
 const hexToRgba = (hex: string, opacity: number) => {
@@ -48,6 +73,32 @@ const hexToRgba = (hex: string, opacity: number) => {
 
 const PRESET_COLORS = ['#3b82f6', '#f43f5e', '#10b981', '#f59e0b', '#6366f1', '#a855f7', '#06b6d4', '#ec4899'];
 
+// --- Função para criar Backup Automático ---
+const createAutomaticBackup = (user: UserProfile, clients: Client[], settings: AppSettings, manualFloatAdjustments: Record<PaymentMethod, number>, invoiceCounter: number) => {
+  try {
+    const backupData = {
+      app: "Super Agente",
+      tipo: "backup_automatico",
+      data: new Date().toLocaleString('pt-MZ'),
+      conteudo: {
+        user,
+        clients,
+        settings,
+        manualFloatAdjustments,
+        invoiceCounter
+      }
+    };
+    
+    // Salvar no LocalStorage (sobrescreve o anterior)
+    localStorage.setItem('super_agente_backup', JSON.stringify(backupData));
+    
+    console.log('✅ Backup automático criado/atualizado!');
+    
+  } catch (erro) {
+    console.error('❌ Erro ao criar backup automático:', erro);
+  }
+};
+
 // --- Helper Components ---
 
 const GlassCard: React.FC<{ children: React.ReactNode, className?: string, isDark: boolean }> = ({ children, className = "", isDark }) => (
@@ -56,9 +107,80 @@ const GlassCard: React.FC<{ children: React.ReactNode, className?: string, isDar
   </div>
 );
 
+const AddClientModal: React.FC<{ 
+  isDark: boolean, 
+  t: any, 
+  clients: Client[], 
+  setShowAddClient: (show: boolean) => void, 
+  handleSaveNewClient: (name: string, phone: string) => void,
+  initialSearch: string,
+  onCreateAutomaticBackup: () => void
+}> = ({ isDark, t, clients, setShowAddClient, handleSaveNewClient, initialSearch, onCreateAutomaticBackup }) => {
+  const [name, setName] = useState(initialSearch || '');
+  const [phone, setPhone] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  
+  const handleSave = () => {
+    const trimmedName = name.trim();
+    const trimmedPhone = phone.trim();
+    
+    if (!trimmedName || !trimmedPhone) {
+      setError("Preencha todos os campos.");
+      return;
+    }
+
+    const isDuplicate = clients.some(c => 
+      c.name.toLowerCase() === trimmedName.toLowerCase() || c.phone === trimmedPhone
+    );
+
+    if (isDuplicate) {
+      setError("Já existe um cliente com este nome ou número.");
+      return;
+    }
+
+    // ⭐⭐ CRIAR BACKUP AUTOMÁTICO ⭐⭐
+    onCreateAutomaticBackup();
+    
+    handleSaveNewClient(trimmedName, trimmedPhone);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm">
+      <div className={`${isDark ? 'bg-slate-900 border border-slate-800' : 'bg-white'} w-full max-w-sm rounded-[40px] p-8 shadow-2xl animate-in zoom-in-95 duration-200`}>
+        <h3 className={`text-xl font-bold mb-6 ${isDark ? 'text-white' : 'text-blue-900'}`}>Novo Cliente</h3>
+
+        {error && (
+          <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2 text-rose-500 text-[10px] font-bold">
+            <AlertCircle className="w-4 h-4" />
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-4 mb-8">
+          <input type="text" placeholder={t.login_name} className={`w-full p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800 text-white placeholder-slate-500' : 'bg-gray-100 text-gray-900 placeholder-gray-400'}`} value={name} onChange={(e) => { setName(e.target.value); setError(null); }} />
+          <input type="tel" placeholder={t.login_phone} className={`w-full p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800 text-white placeholder-slate-500' : 'bg-gray-100 text-gray-900 placeholder-gray-400'}`} value={phone} onChange={(e) => { setPhone(e.target.value); setError(null); }} />
+        </div>
+        <div className="flex gap-4">
+          <button onClick={() => setShowAddClient(false)} className={`flex-1 p-4 rounded-2xl font-bold ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-gray-500'}`}>{t.tx_cancel}</button>
+          <button onClick={handleSave} className="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition-transform">{t.modal_save}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- Modals ---
 
-const EditClientModal: React.FC<{ isDark: boolean, t: any, client: Client, clients: Client[], onClose: () => void, onSave: (name: string, phone: string) => void, onDelete: () => void }> = ({ isDark, t, client, clients, onClose, onSave, onDelete }) => {
+const EditClientModal: React.FC<{ 
+  isDark: boolean, 
+  t: any, 
+  client: Client, 
+  clients: Client[], 
+  onClose: () => void, 
+  onSave: (name: string, phone: string) => void, 
+  onDelete: () => void,
+  onCreateAutomaticBackup: () => void
+}> = ({ isDark, t, client, clients, onClose, onSave, onDelete, onCreateAutomaticBackup }) => {
   const [name, setName] = useState(client.name);
   const [phone, setPhone] = useState(client.phone);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +204,17 @@ const EditClientModal: React.FC<{ isDark: boolean, t: any, client: Client, clien
       return;
     }
 
+    // Atualizar cliente
+    const updatedClients = clients.map(c => 
+      c.id === client.id ? {...c, name: trimmedName, phone: trimmedPhone} : c
+    );
+    
+    // ⭐⭐ SALVAR APENAS AQUI - quando clica em "Salvar" ⭐⭐
+    localforage.setItem('agent_clients', updatedClients).catch(console.error);
+    
+    // ⭐⭐ CRIAR BACKUP AUTOMÁTICO ⭐⭐
+    onCreateAutomaticBackup();
+    
     onSave(trimmedName, trimmedPhone);
   };
 
@@ -118,11 +251,22 @@ const FloatManagementModal: React.FC<{
   t: any,
   settings: AppSettings,
   onClose: () => void,
-  onUpdate: (method: PaymentMethod, amount: number) => void
-}> = ({ isDark, t, settings, onClose, onUpdate }) => {
+  onUpdate: (method: PaymentMethod, amount: number) => void,
+  onCreateAutomaticBackup: () => void
+}> = ({ isDark, t, settings, onClose, onUpdate, onCreateAutomaticBackup }) => {
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState<PaymentMethod>(settings.enabledAccounts[0] || 'Cash');
   const [type, setType] = useState<'Add' | 'Sub'>('Add');
+
+  const handleConfirm = () => {
+    const val = parseFloat(amount);
+    if (!isNaN(val)) {
+      onUpdate(method, type === 'Add' ? val : -val);
+      // ⭐⭐ CRIAR BACKUP AUTOMÁTICO ⭐⭐
+      onCreateAutomaticBackup();
+    }
+    onClose();
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm">
@@ -140,11 +284,7 @@ const FloatManagementModal: React.FC<{
         </div>
         <div className="flex gap-4">
           <button onClick={onClose} className={`flex-1 p-4 rounded-2xl font-bold ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-gray-500'}`}>{t.tx_cancel}</button>
-          <button onClick={() => {
-            const val = parseFloat(amount);
-            if (!isNaN(val)) onUpdate(method, type === 'Add' ? val : -val);
-            onClose();
-          }} className="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition-transform">Confirmar</button>
+          <button onClick={handleConfirm} className="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition-transform">Confirmar</button>
         </div>
       </div>
     </div>
@@ -161,8 +301,9 @@ const TransactionModal: React.FC<{
   setClients: (c: Client[]) => void, 
   setShowTransactionModal: (s: any) => void, 
   setShowSMSConfirmModal: (s: any) => void,
-  agentBalances: Record<PaymentMethod, number>
-}> = ({ isDark, t, settings, showTransactionModal, selectedClient, clients, setClients, setShowTransactionModal, setShowSMSConfirmModal, agentBalances }) => {
+  agentBalances: Record<PaymentMethod, number>,
+  onCreateAutomaticBackup: () => void
+}> = ({ isDark, t, settings, showTransactionModal, selectedClient, clients, setClients, setShowTransactionModal, setShowSMSConfirmModal, agentBalances, onCreateAutomaticBackup }) => {
   const [formData, setFormData] = useState<{ amount: string, method: PaymentMethod, date: string, desc: string }>({ 
     amount: '', 
     method: settings.enabledAccounts[0] || 'Cash', 
@@ -198,9 +339,20 @@ const TransactionModal: React.FC<{
       settled: showTransactionModal.type === 'Inflow' 
     };
 
-    const updatedClients = clients.map((c: Client) => c.id === selectedClient.id ? { ...c, activeAccount: [newTx, ...c.activeAccount] } : c);
+    // Atualizar clients
+    const updatedClients = clients.map((c: Client) => 
+      c.id === selectedClient.id ? { ...c, activeAccount: [newTx, ...c.activeAccount] } : c
+    );
+    
     setClients(updatedClients);
     setShowTransactionModal({ show: false, type: null });
+    
+    // ⭐⭐ SALVAR APENAS AQUI - quando clica em "Confirmar" ⭐⭐
+    localforage.setItem('agent_clients', updatedClients).catch(console.error);
+    
+    // ⭐⭐ CRIAR BACKUP AUTOMÁTICO ⭐⭐
+    onCreateAutomaticBackup();
+    
     if (newTx.type === 'Outflow') setShowSMSConfirmModal({ show: true, tx: newTx });
   };
 
@@ -269,8 +421,6 @@ const TransactionModal: React.FC<{
   );
 };
 
-// --- View Components ---
-
 const DashboardView: React.FC<{ 
   isDark: boolean, 
   t: any, 
@@ -284,22 +434,88 @@ const DashboardView: React.FC<{
   onOpenFloat: () => void
 }> = ({ isDark, t, user, settings, clients, getClientBalance, setView, setSelectedClientId, agentBalances, onOpenFloat }) => {
   const chartData = useMemo(() => {
-    const ptDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
-    const enDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const dayLabels = settings.language === 'pt' ? ptDays : enDays;
-    
     const data = [];
+    
+    // 1. Criamos os últimos 7 dias
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
+      d.setHours(0, 0, 0, 0); // Zera as horas para comparação exacta
       d.setDate(d.getDate() - i);
+      
+      // Formato visual solicitado: 17/1, 18/1, etc.
+      const label = `${d.getDate()}/${d.getMonth() + 1}`;
+      let totalDoDia = 0;
+
+      // 2. Soma as transações (Corrigido para usar activeAccount)
+      clients.forEach(client => {
+        // Verificamos se existem transações na conta ativa
+        if (client.activeAccount && Array.isArray(client.activeAccount)) {
+          client.activeAccount.forEach(tx => {
+            const txDate = new Date(tx.date);
+            txDate.setHours(0, 0, 0, 0); // Zera as horas para comparar apenas o dia
+
+            if (txDate.getTime() === d.getTime()) {
+              const valor = Number(tx.amount) || 0;
+              // No seu App, Inflow (Entrada) aumenta o saldo do agente
+              if (tx.type === 'Inflow') {
+                totalDoDia += valor;
+              } else {
+                totalDoDia -= valor;
+              }
+            }
+          });
+        }
+      });
+
       data.push({
-        day: dayLabels[d.getDay()],
-        total: 0 
+        day: label,
+        total: totalDoDia
       });
     }
+    
     return data;
-  }, [settings.language]);
-
+  }, [clients]);
+  
+  // Função para obter as últimas 4 atividades em ordem cronológica
+  const getRecentActivities = useMemo(() => {
+    const allActivities: Array<{
+      client: Client;
+      transaction: Transaction;
+      clientId: string;
+    }> = [];
+    
+    // Coletar todas as transações de todos os clientes
+    clients.forEach(client => {
+      if (client.activeAccount && Array.isArray(client.activeAccount)) {
+        client.activeAccount.forEach(transaction => {
+          allActivities.push({
+            client,
+            transaction,
+            clientId: client.id
+          });
+        });
+      }
+    });
+    
+    // Ordenar por data (mais recente primeiro)
+    const sortedActivities = allActivities.sort((a, b) => {
+      return new Date(b.transaction.date).getTime() - new Date(a.transaction.date).getTime();
+    });
+    
+    // Pegar apenas as 4 mais recentes
+    return sortedActivities.slice(0, 4);
+  }, [clients]);
+  
+  // Função para formatar data e hora
+  const formatDateTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${day}/${month} ${hours}:${minutes}`;
+  };
+  
   const bgOpacity = settings.uiConfig.transparency;
 
   return (
@@ -316,9 +532,6 @@ const DashboardView: React.FC<{
         <div className="flex items-center gap-2 md:gap-3">
           <button onClick={onOpenFloat} className={`w-10 h-10 md:w-12 md:h-12 rounded-2xl flex items-center justify-center transition-all active:scale-95 border border-transparent shadow-sm`} style={{ backgroundColor: hexToRgba(settings.uiConfig.primaryColor, 0.1), color: settings.uiConfig.primaryColor }}>
             <Wallet className="w-5 h-5 md:w-6 md:h-6" />
-          </button>
-          <button onClick={() => setView('login')} className={`w-10 h-10 md:w-12 md:h-12 rounded-2xl flex items-center justify-center transition-all active:scale-95 ${isDark ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' : 'bg-rose-50 text-rose-600 border border-rose-100 shadow-sm'}`}>
-            <LogOut className="w-5 h-5 md:w-6 md:h-6" />
           </button>
         </div>
       </header>
@@ -355,23 +568,47 @@ const DashboardView: React.FC<{
       </GlassCard>
 
       <section className="space-y-4">
-        <h3 className={`font-extrabold text-[10px] md:text-sm uppercase tracking-widest ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t.dash_recent}</h3>
+        <h3 className={`font-extrabold text-[10px] md:text-sm uppercase tracking-widest ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Atividades Recentes</h3>
         <div className="space-y-3">
-          {clients.length === 0 ? (
-            <div className="py-10 text-center opacity-30 italic font-medium text-sm">Nenhum cliente recente</div>
+          {getRecentActivities.length === 0 ? (
+            <div className="py-10 text-center opacity-30 italic font-medium text-sm">Nenhuma atividade recente</div>
           ) : (
-            clients.slice(0, 3).map((client) => (
-              <div key={client.id} className={`p-3 md:p-4 rounded-3xl flex justify-between items-center cursor-pointer active:scale-[0.98] transition-all ${isDark ? 'bg-slate-800/40 hover:bg-slate-800/60' : 'bg-white hover:bg-slate-50'} shadow-sm border ${isDark ? 'border-slate-700/50' : 'border-slate-100'}`} onClick={() => { setSelectedClientId(client.id); setView('client-detail'); }}>
-                <div className="flex items-center gap-3 md:gap-4 overflow-hidden">
-                  <div className={`w-10 h-10 md:w-12 md:h-12 flex-shrink-0 rounded-2xl flex items-center justify-center font-bold text-xs md:text-sm ${isDark ? 'bg-slate-700' : 'bg-blue-100'}`} style={{ color: settings.uiConfig.primaryColor }}>
-                    {client.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                  </div>
-                  <div className="overflow-hidden">
-                    <p className={`font-bold text-sm md:text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{client.name}</p>
-                    <p className="text-[10px] md:text-xs text-slate-500 font-medium truncate">{t.settings_acc_balance}: {getClientBalance(client).toLocaleString()} {settings.currency}</p>
+            getRecentActivities.map((activity, index) => (
+              <div 
+                key={`${activity.clientId}-${activity.transaction.id}-${index}`} 
+                className={`p-4 rounded-3xl flex justify-between items-start cursor-pointer active:scale-[0.98] transition-all ${isDark ? 'bg-slate-800/40 hover:bg-slate-800/60' : 'bg-white hover:bg-slate-50'} shadow-sm border ${isDark ? 'border-slate-700/50' : 'border-slate-100'}`} 
+                onClick={() => { setSelectedClientId(activity.clientId); setView('client-detail'); }}
+              >
+                <div className="flex-1 min-w-0">
+                  {/* 1. Nome do cliente em destaque no topo */}
+                  <p className={`font-extrabold text-sm md:text-base truncate mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    {activity.client.name}
+                  </p>
+                  
+                  {/* 2. Descrição da transação com data e hora */}
+                  <div className="space-y-1">
+                    <p className="text-xs md:text-sm font-medium text-slate-600 dark:text-slate-400 truncate">
+                      {activity.transaction.description || activity.transaction.type}
+                    </p>
+                    <div className="flex items-center gap-2 text-[10px] md:text-xs text-slate-500 dark:text-slate-400 font-medium">
+                      <div className={`px-2 py-0.5 rounded-full ${activity.transaction.type === 'Inflow' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'}`}>
+                        {activity.transaction.method}
+                      </div>
+                      <span>•</span>
+                      <span>{formatDateTime(activity.transaction.date)}</span>
+                    </div>
                   </div>
                 </div>
-                <ChevronRight className="w-4 h-4 md:w-5 md:h-5 text-slate-300 flex-shrink-0" />
+                
+                {/* 3. Valor (mantido como estava) */}
+                <div className="flex flex-col items-end ml-4 flex-shrink-0">
+                  <p className={`font-black text-base md:text-lg ${activity.transaction.type === 'Inflow' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                    {activity.transaction.type === 'Inflow' ? '+' : '-'}{activity.transaction.amount.toLocaleString()}
+                  </p>
+                  <p className="text-[8px] md:text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                    {settings.currency}
+                  </p>
+                </div>
               </div>
             ))
           )}
@@ -380,59 +617,369 @@ const DashboardView: React.FC<{
     </div>
   );
 };
-
 // --- Main App ---
 
 const App: React.FC = () => {
-  // Load initial states from LocalStorage or use defaults
-  const [view, setView] = useState<ViewState>('login');
+  // Estados iniciais
+  const [view, setView] = useState<ViewState>('dashboard');
+  const [user, setUser] = useState<UserProfile>({ name: 'Agente', isFirstTime: false }); // REMOVIDO: phone e password
+  const [clients, setClients] = useState<Client[]>([]);
+  const [settings, setSettings] = useState<AppSettings>({
+    ...INITIAL_SETTINGS,
+    // 3. Acrescentar conta mkesh as contas
+    enabledAccounts: ['Super M-pesa', 'Super E-mola', 'M-pesa', 'E-mola', 'Mkesh', 'Cash'],
+    accountColors: {
+      ...INITIAL_SETTINGS.accountColors,
+      'Mkesh': '#06b6d4' // Adiciona cor padrão para Mkesh
+    }
+  });
   
-  const [user, setUser] = useState<UserProfile>(() => {
-    const saved = localStorage.getItem('agent_user');
-    return saved ? JSON.parse(saved) : { name: '', phone: '', password: '', isFirstTime: true };
+  const [manualFloatAdjustments, setManualFloatAdjustments] = useState<Record<PaymentMethod, number>>({ 
+    'Super M-pesa': 0, 'Super E-mola': 0, 'M-pesa': 0, 'E-mola': 0, 'Mkesh': 0, 'Cash': 0 
   });
-
-  const [clients, setClients] = useState<Client[]>(() => {
-    const saved = localStorage.getItem('agent_clients');
-    return saved ? JSON.parse(saved) : INITIAL_CLIENTS;
-  });
-
+  
+  // Contador global de faturas
+  const [invoiceCounter, setInvoiceCounter] = useState<number>(1);
+  
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  
-  const [settings, setSettings] = useState<AppSettings>(() => {
-    const saved = localStorage.getItem('agent_settings');
-    return saved ? JSON.parse(saved) : INITIAL_SETTINGS;
-  });
-
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddClient, setShowAddClient] = useState(false);
   const [showEditClient, setShowEditClient] = useState(false);
-  const [showTransactionModal, setShowTransactionModal] = useState<{ show: boolean, type: 'Inflow' | 'Outflow' | null }>({ show: false, type: null });
-  const [showSMSConfirmModal, setShowSMSConfirmModal] = useState<{ show: boolean, tx: Transaction | null }>({ show: false, tx: null });
+  const [showTransactionModal, setShowTransactionModal] = useState<{ 
+    show: boolean, 
+    type: 'Inflow' | 'Outflow' | null 
+  }>({ show: false, type: null });
+  const [showSMSConfirmModal, setShowSMSConfirmModal] = useState<{ 
+    show: boolean, 
+    tx: Transaction | null 
+  }>({ show: false, tx: null });
   const [showFloatModal, setShowFloatModal] = useState(false);
   const [isUserBoxOpen, setIsUserBoxOpen] = useState(false);
   const [isAccountsBoxOpen, setIsAccountsBoxOpen] = useState(false);
-  const [isAppBoxOpen, setIsAppBoxOpen] = useState(false);
   const [newAccName, setNewAccName] = useState('');
   const [editingAccountColor, setEditingAccountColor] = useState<string | null>(null);
-  
-  const [manualFloatAdjustments, setManualFloatAdjustments] = useState<Record<PaymentMethod, number>>(() => {
-    const saved = localStorage.getItem('agent_float');
-    return saved ? JSON.parse(saved) : { 'Super M-pesa': 0, 'Super E-mola': 0, 'M-pesa': 0, 'E-mola': 0, 'Cash': 0 };
-  });
 
-  // Effects to persist state changes
-  useEffect(() => { localStorage.setItem('agent_user', JSON.stringify(user)); }, [user]);
-  useEffect(() => { localStorage.setItem('agent_clients', JSON.stringify(clients)); }, [clients]);
-  useEffect(() => { localStorage.setItem('agent_settings', JSON.stringify(settings)); }, [settings]);
-  useEffect(() => { localStorage.setItem('agent_float', JSON.stringify(manualFloatAdjustments)); }, [manualFloatAdjustments]);
-
-  const t = translations[settings.language];
-  const isDark = settings.theme === 'dark';
-
+  // 4. SALVAR DADOS AUTOMATICAMENTE quando houver alterações
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', isDark);
-  }, [isDark]);
+    const saveAllData = async () => {
+      if (isLoading) return; // Não salvar durante o carregamento inicial
+      
+      try {
+        console.log('💾 Salvando dados automaticamente...');
+        
+        // Salvar tudo no localForage
+        await Promise.all([
+          localforage.setItem('agent_user', user),
+          localforage.setItem('agent_clients', clients),
+          localforage.setItem('agent_settings', settings),
+          localforage.setItem('agent_float', manualFloatAdjustments),
+          localforage.setItem('agent_invoice_counter', invoiceCounter)
+        ]);
+        
+        // Criar backup automático
+        createAutomaticBackup(user, clients, settings, manualFloatAdjustments, invoiceCounter);
+        
+        console.log('✅ Dados salvos com sucesso!');
+      } catch (error) {
+        console.error('❌ Erro ao salvar dados:', error);
+      }
+    };
+    
+    // Salvar dados sempre que houver alterações
+    saveAllData();
+  }, [user, clients, settings, manualFloatAdjustments, invoiceCounter, isLoading]);
+
+  // Carregar dados salvos
+  useEffect(() => {
+    const loadSavedData = async () => {
+      try {
+        console.log('🔄 Carregando dados salvos...');
+        
+        // ⭐⭐ PRIMEIRO: Solicitar armazenamento PERSISTENTE ⭐⭐
+        await requestPersistentStorage();
+        
+        // ⭐⭐ SEGUNDO: Tentar carregar do backup automático (localStorage) ⭐⭐
+        const backupSalvo = localStorage.getItem('super_agente_backup');
+        
+        if (backupSalvo) {
+          try {
+            const backup = JSON.parse(backupSalvo);
+            
+            // Verificar se é um backup válido do nosso app
+            if (backup.conteudo && backup.conteudo.user) {
+              console.log('✅ Backup encontrado, restaurando...');
+              
+              // Restaurar dados do backup
+              const { 
+                user: backupUser, 
+                clients: backupClients, 
+                settings: backupSettings, 
+                manualFloatAdjustments: backupFloat,
+                invoiceCounter: backupInvoiceCounter 
+              } = backup.conteudo;
+              
+              if (backupUser && backupUser.name) {
+                setUser(backupUser);
+                console.log('👤 Usuário restaurado do backup:', backupUser.name);
+              }
+              
+              if (backupClients && Array.isArray(backupClients)) {
+                setClients(backupClients);
+                console.log('👥 Clientes restaurados do backup:', backupClients.length);
+              }
+              
+              if (backupSettings) {
+                setSettings(backupSettings);
+                console.log('⚙️ Configurações restauradas do backup');
+              }
+              
+              if (backupFloat) {
+                setManualFloatAdjustments(prev => ({
+                  ...prev,
+                  ...backupFloat
+                }));
+                console.log('💰 Float restaurado do backup');
+              }
+              
+              if (backupInvoiceCounter) {
+                setInvoiceCounter(backupInvoiceCounter);
+                console.log('🧾 Contador de faturas restaurado:', backupInvoiceCounter);
+              }
+              
+              setIsLoading(false);
+              return;
+            }
+          } catch (erroBackup) {
+            console.warn('⚠️ Backup corrompido, ignorando...', erroBackup);
+          }
+        }
+        
+        console.log('⚠️ Nenhum backup encontrado, carregando do sistema antigo...');
+        
+        // Carregar do localForage (sistema antigo)
+        const [savedUser, savedClients, savedSettings, savedFloat, savedInvoiceCounter] = await Promise.all([
+          localforage.getItem<UserProfile>('agent_user'),
+          localforage.getItem<Client[]>('agent_clients'),
+          localforage.getItem<AppSettings>('agent_settings'),
+          localforage.getItem<Record<PaymentMethod, number>>('agent_float'),
+          localforage.getItem<number>('agent_invoice_counter')
+        ]);
+
+        console.log('📥 Dados carregados do localForage:', {
+          temUsuario: !!savedUser,
+          qtdClientes: savedClients?.length || 0,
+          invoiceCounter: savedInvoiceCounter || 1
+        });
+
+        // Restaurar dados se existirem no localForage
+        if (savedUser && savedUser.name) {
+          console.log('✅ Restaurando usuário do localForage:', savedUser.name);
+          setUser(savedUser);
+        }
+        
+        if (savedClients && savedClients.length > 0) {
+          console.log('✅ Restaurando clientes do localForage:', savedClients.length);
+          setClients(savedClients);
+        }
+        
+        if (savedSettings) {
+          console.log('✅ Restaurando configurações do localForage');
+          setSettings(savedSettings);
+        }
+        
+        if (savedFloat) {
+          console.log('✅ Restaurando ajustes de float do localForage');
+          setManualFloatAdjustments(prev => ({
+            ...prev,
+            ...savedFloat
+          }));
+        }
+        
+        // Restaurar contador de faturas
+        if (savedInvoiceCounter && savedInvoiceCounter > 0) {
+          console.log('✅ Restaurando contador de faturas do localForage:', savedInvoiceCounter);
+          setInvoiceCounter(savedInvoiceCounter);
+        }
+        
+      } catch (error) {
+        console.error('❌ Erro ao carregar dados:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadSavedData();
+  }, []);
+
+  // 1. Exportar Backup para arquivo JSON
+  const exportBackup = () => {
+    try {
+      const backupData = {
+        app: "Super Agente",
+        versao: "2.0",
+        dataBackup: new Date().toLocaleString('pt-MZ'),
+        usuario: user.name || "Agente",
+        conteudo: {
+          user,
+          clients,
+          settings,
+          manualFloatAdjustments,
+          invoiceCounter
+        }
+      };
+
+      // Criar arquivo JSON
+      const jsonString = JSON.stringify(backupData, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      
+      // Criar link para download
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'super_agente_backup.json'; // 6. Sempre mesmo nome
+      
+      // Baixar arquivo
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Limpar
+      window.URL.revokeObjectURL(url);
+      
+      alert(`✅ Backup exportado com sucesso!\nArquivo: ${link.download}`);
+      
+    } catch (erro) {
+      console.error('❌ Erro ao exportar backup:', erro);
+      alert('❌ Erro ao criar backup!');
+    }
+  };
+
+  // 2. Importar Backup de arquivo JSON
+  const importBackup = (evento: any) => {
+    const arquivo = evento.target.files?.[0];
+    if (!arquivo) return;
+
+    const leitor = new FileReader();
+    
+    leitor.onload = (e) => {
+      try {
+        const conteudo = e.target?.result;
+        const dados = JSON.parse(conteudo as string);
+        
+        // Verificar se é um backup nosso
+        if (!dados.conteudo || !dados.conteudo.user) {
+          alert('❌ Este não é um backup válido do Super Agente!');
+          return;
+        }
+        
+        const confirmacao = window.confirm(
+          `Deseja restaurar backup de ${dados.dataBackup || 'data desconhecida'}?\n` +
+          `Usuário: ${dados.usuario || 'Desconhecido'}\n` +
+          `Clientes: ${dados.conteudo.clients?.length || 0}\n\n` +
+          `⚠️  ATENÇÃO: Todos os dados atuais serão substituídos!`
+        );
+        
+        if (confirmacao) {
+          // Restaurar dados
+          setUser(dados.conteudo.user);
+          setClients(dados.conteudo.clients || []);
+          setSettings(dados.conteudo.settings || INITIAL_SETTINGS);
+          setManualFloatAdjustments(dados.conteudo.manualFloatAdjustments || {});
+          setInvoiceCounter(dados.conteudo.invoiceCounter || 1);
+          
+          // Salvar os dados restaurados
+          Promise.all([
+            localforage.setItem('agent_user', dados.conteudo.user),
+            localforage.setItem('agent_clients', dados.conteudo.clients || []),
+            localforage.setItem('agent_settings', dados.conteudo.settings || INITIAL_SETTINGS),
+            localforage.setItem('agent_float', dados.conteudo.manualFloatAdjustments || {}),
+            localforage.setItem('agent_invoice_counter', dados.conteudo.invoiceCounter || 1)
+          ]).then(() => {
+            // 5. Sobrescrever o backup local
+            localStorage.setItem('super_agente_backup', JSON.stringify(dados));
+            
+            alert(`✅ Backup restaurado com sucesso!\n` +
+                  `Usuário: ${dados.conteudo.user.name}\n` +
+                  `Clientes: ${dados.conteudo.clients?.length || 0}\n` +
+                  `Última fatura: FAT-${(dados.conteudo.invoiceCounter || 1).toString().padStart(4, '0')}\n\n` +
+                  `A página será recarregada...`);
+            
+            // Recarregar após 1 segundo
+            setTimeout(() => {
+              window.location.reload();
+            }, 1000);
+          }).catch(error => {
+            console.error('❌ Erro ao salvar dados restaurados:', error);
+            alert('❌ Erro ao salvar dados restaurados!');
+          });
+        }
+        
+      } catch (erro) {
+        console.error('❌ Erro ao importar backup:', erro);
+        alert('❌ Erro ao ler arquivo! Verifique se é um backup válido.');
+      }
+    };
+    
+    leitor.onerror = () => {
+      alert('❌ Erro ao ler arquivo!');
+    };
+    
+    leitor.readAsText(arquivo);
+    
+    // Limpar input
+    evento.target.value = '';
+  };
+
+  // Função wrapper para criar backup automático
+  const handleCreateAutomaticBackup = () => {
+    createAutomaticBackup(user, clients, settings, manualFloatAdjustments, invoiceCounter);
+  };
+
+  // Função para arquivar conta com número de fatura
+  const handleCloseAccount = (client: Client) => {
+    const bal = getClientBalance(client);
+    
+    if (bal !== 0) {
+      alert("Saldo deve ser zero para arquivar.");
+      return;
+    }
+
+    // Gerar número de fatura único
+    const invoiceNumber = `FAT-${invoiceCounter.toString().padStart(4, '0')}`;
+    
+    // Incrementar contador
+    const nextInvoiceCounter = invoiceCounter + 1;
+    
+    // Atualizar cliente com fatura
+    const updatedClients = clients.map(c => 
+      c.id === client.id 
+        ? {
+            ...c,
+            archive: [{
+              dateClosed: new Date().toISOString(),
+              transactions: c.activeAccount,
+              invoiceNumber: invoiceNumber
+            }, ...c.archive],
+            activeAccount: []
+          }
+        : c
+    );
+    
+    setClients(updatedClients);
+    setInvoiceCounter(nextInvoiceCounter);
+    
+    // Salvar dados
+    Promise.all([
+      localforage.setItem('agent_clients', updatedClients),
+      localforage.setItem('agent_invoice_counter', nextInvoiceCounter)
+    ]).catch(console.error);
+    
+    // Criar backup automático
+    handleCreateAutomaticBackup();
+    
+    alert(`✅ Conta arquivada com sucesso!\nNúmero da fatura: ${invoiceNumber}`);
+  };
 
   const selectedClient = clients.find(c => c.id === selectedClientId);
 
@@ -465,57 +1012,30 @@ const App: React.FC = () => {
     );
   }, [clients, searchQuery]);
 
-  const handleLogin = (formData: any) => {
-    if (user.isFirstTime) {
-      const selfClient: Client = {
-        id: Math.random().toString(36).substring(2, 9),
-        name: formData.name || 'Agente',
-        phone: formData.phone || '',
-        activeAccount: [],
-        archive: []
-      };
-      setClients(prev => [...prev, selfClient]);
-    }
-    setUser(prev => ({ ...prev, ...formData, isFirstTime: false }));
-    setView('dashboard');
-  };
+  const isAuthView = false;
+  const t = translations[settings.language];
+  const isDark = settings.theme === 'dark';
 
-  const isAuthView = view === 'login' || view === 'forgot-password';
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDark);
+  }, [isDark]);
 
   return (
     <div className={`fixed inset-0 flex items-center justify-center p-0 md:p-4 lg:p-8 transition-colors duration-500 ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
       <div className={`w-full h-full max-w-md md:max-w-lg md:h-[90vh] md:max-h-[1000px] md:rounded-[3.5rem] app-shadow flex flex-col transition-all overflow-hidden relative ${isDark ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-900'} border border-white/5`}>
         <main className="flex-1 overflow-y-auto relative no-scrollbar">
-          {view === 'login' && (
-            <div className="flex flex-col items-center justify-center min-h-full px-6 md:px-12 py-12 animate-in fade-in zoom-in-95 duration-700">
-              <div className="w-20 h-20 md:w-24 md:h-24 rounded-[2.5rem] flex items-center justify-center mb-8 shadow-2xl" style={{ backgroundColor: settings.uiConfig.primaryColor }}><LayoutDashboard className="text-white w-10 h-10 md:w-12 md:h-12" /></div>
-              
-              {!user.isFirstTime ? (
-                <div className="text-center mb-10 animate-in slide-in-from-top-4 duration-500">
-                   <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-2">{user.name || 'Agente'}</h1>
-                   <p className="text-slate-500 font-bold text-xs opacity-70 tracking-widest uppercase">{user.phone}</p>
-                </div>
-              ) : (
-                <>
-                  <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-2 text-center">{settings.appName}</h1>
-                  <p className="text-slate-500 font-medium mb-12 text-center text-xs md:text-sm px-4 max-w-[300px]">{t.login_subtitle}</p>
-                </>
-              )}
-              
-              <form onSubmit={(e) => { e.preventDefault(); const target = e.target as any; handleLogin({ name: target.name?.value || '', phone: target.phone?.value || '', password: target.password?.value || '' }); }} className="w-full space-y-4 max-w-[340px]">
-                {user.isFirstTime && (
-                  <>
-                    <input name="name" type="text" placeholder={t.login_name} className={`w-full p-4 md:p-5 rounded-3xl border-none focus:ring-4 focus:ring-blue-600/20 text-base md:text-lg font-medium transition-all ${isDark ? 'bg-slate-800 text-white placeholder-slate-600' : 'bg-white text-slate-900 shadow-sm'}`} required />
-                    <input name="phone" type="tel" placeholder={t.login_phone} className={`w-full p-4 md:p-5 rounded-3xl border-none focus:ring-4 focus:ring-blue-600/20 text-base md:text-lg font-medium transition-all ${isDark ? 'bg-slate-800 text-white placeholder-slate-600' : 'bg-white text-slate-900 shadow-sm'}`} required />
-                  </>
-                )}
-                <input name="password" type="password" placeholder={t.login_pass} className={`w-full p-4 md:p-5 rounded-3xl border-none focus:ring-4 focus:ring-blue-600/20 text-base md:text-lg font-medium transition-all ${isDark ? 'bg-slate-800 text-white placeholder-slate-600' : 'bg-white text-slate-900 shadow-sm'}`} required />
-                <button type="submit" className="w-full p-4 md:p-5 text-white rounded-3xl font-black text-base md:text-lg shadow-xl active:scale-95 transition-all mt-4 hover:brightness-110" style={{ backgroundColor: settings.uiConfig.primaryColor }}>{user.isFirstTime ? t.login_btn_create : t.login_btn_signin}</button>
-              </form>
-            </div>
-          )}
-
-          {view === 'dashboard' && <DashboardView isDark={isDark} t={t} user={user} settings={settings} clients={clients} getClientBalance={getClientBalance} setView={setView} setSelectedClientId={setSelectedClientId} agentBalances={agentBalances} onOpenFloat={() => setShowFloatModal(true)} />}
+          {view === 'dashboard' && <DashboardView 
+            isDark={isDark} 
+            t={t} 
+            user={user} 
+            settings={settings} 
+            clients={clients} 
+            getClientBalance={getClientBalance} 
+            setView={setView} 
+            setSelectedClientId={setSelectedClientId} 
+            agentBalances={agentBalances} 
+            onOpenFloat={() => setShowFloatModal(true)} 
+          />}
           
           {view === 'clients' && (
             <div className="p-6 pb-24 space-y-6 animate-in fade-in duration-500">
@@ -575,10 +1095,18 @@ const App: React.FC = () => {
                     <h2 className="text-2xl md:text-3xl font-black tracking-tight text-center px-4">{selectedClient.name}</h2>
                     <p className="opacity-70 text-xs md:text-sm font-bold mt-1">{selectedClient.phone}</p>
                     <div className="grid grid-cols-4 gap-2 md:gap-4 w-full px-2 md:px-4 mt-8">
-                      {[{icon: <Phone />, label: 'Ligar', action: () => window.location.href=`tel:${selectedClient.phone}`}, {icon: <MessageSquare />, label: 'Cobrar', action: () => { const bal = getClientBalance(selectedClient); const text = settings.smsTemplates.debtReminder.replace('{amount}', bal.toString()).replace('{currency}', settings.currency); window.location.href = `sms:${selectedClient.phone}?body=${encodeURIComponent(text)}`; }}, {icon: <History />, label: 'Arquivo', action: () => setView('client-archive')}, {icon: <Trash2 />, label: 'Fechar', action: () => { if(getClientBalance(selectedClient) !== 0) { alert("Saldo deve ser zero para arquivar."); return; } setClients(clients.map(c => c.id === selectedClient.id ? {...c, archive: [{dateClosed: new Date().toISOString(), transactions: c.activeAccount}, ...c.archive], activeAccount: []} : c)); }}].map((btn, i) => (
-                        <button key={i} onClick={btn.action} className="flex flex-col items-center gap-2 group"><div className="w-12 h-12 md:w-14 md:h-14 bg-white/15 rounded-2xl flex items-center justify-center text-white shadow-xl group-active:scale-90 transition-all">
-                          {React.cloneElement(btn.icon as React.ReactElement<any>, { className: 'w-5 h-5 md:w-6 md:h-6' })}
-                        </div><span className="text-[8px] md:text-[10px] font-black uppercase tracking-widest opacity-80">{btn.label}</span></button>
+                      {[
+                        {icon: <Phone />, label: 'Ligar', action: () => window.location.href=`tel:${selectedClient.phone}`}, 
+                        {icon: <MessageSquare />, label: 'Cobrar', action: () => { const bal = getClientBalance(selectedClient); const text = settings.smsTemplates.debtReminder.replace('{amount}', bal.toString()).replace('{currency}', settings.currency); window.location.href = `sms:${selectedClient.phone}?body=${encodeURIComponent(text)}`; }}, 
+                        {icon: <History />, label: 'Arquivo', action: () => setView('client-archive')}, 
+                        {icon: <FileText />, label: 'Fechar', action: () => handleCloseAccount(selectedClient)}
+                      ].map((btn, i) => (
+                        <button key={i} onClick={btn.action} className="flex flex-col items-center gap-2 group">
+                          <div className="w-12 h-12 md:w-14 md:h-14 bg-white/15 rounded-2xl flex items-center justify-center text-white shadow-xl group-active:scale-90 transition-all">
+                            {React.cloneElement(btn.icon as React.ReactElement<any>, { className: 'w-5 h-5 md:w-6 md:h-6' })}
+                          </div>
+                          <span className="text-[8px] md:text-[10px] font-black uppercase tracking-widest opacity-80">{btn.label}</span>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -586,22 +1114,49 @@ const App: React.FC = () => {
                 <div className="flex-1 px-4 md:px-6 pt-10 pb-32 space-y-6">
                    <div className="flex justify-between items-end">
                       <h3 className={`font-black uppercase tracking-widest text-[10px] md:text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t.client_active_ledger}</h3>
-                      <div className="text-right"><p className="text-[8px] md:text-[10px] text-slate-400 font-black uppercase tracking-widest">{t.client_debt}</p><p className={`text-2xl md:text-3xl font-black ${getClientBalance(selectedClient) > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{getClientBalance(selectedClient).toLocaleString()} <span className="text-xs font-bold">{settings.currency}</span></p></div>
+                      <div className="text-right">
+                        <p className="text-[8px] md:text-[10px] text-slate-400 font-black uppercase tracking-widest">{t.client_debt}</p>
+                        <p className={`text-2xl md:text-3xl font-black ${getClientBalance(selectedClient) > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                          {getClientBalance(selectedClient).toLocaleString()} 
+                          <span className="text-xs font-bold">{settings.currency}</span>
+                        </p>
+                      </div>
                    </div>
-                   {selectedClient.activeAccount.length === 0 ? <div className="py-20 flex flex-col items-center justify-center opacity-40"><LayoutDashboard className="w-14 h-14 md:w-16 md:h-16 mb-4" /><p className="font-bold text-sm">Nenhum lançamento</p></div> : (
+                   {selectedClient.activeAccount.length === 0 ? (
+                    <div className="py-20 flex flex-col items-center justify-center opacity-40">
+                      <LayoutDashboard className="w-14 h-14 md:w-16 md:h-16 mb-4" />
+                      <p className="font-bold text-sm">Nenhum lançamento</p>
+                    </div>
+                   ) : (
                      <div className="space-y-3">
                         {selectedClient.activeAccount.map(tx => (
                           <div key={tx.id} className={`p-4 rounded-[2rem] border shadow-sm flex items-center justify-between transition-all ${isDark ? 'bg-slate-800/40 border-slate-700/50 hover:bg-slate-800/60' : 'bg-white border-slate-100 hover:bg-slate-50'}`}>
-                             <div className="flex items-center gap-3 md:gap-4 overflow-hidden"><div className={`w-10 h-10 md:w-12 md:h-12 flex-shrink-0 rounded-2xl flex items-center justify-center ${tx.type === 'Inflow' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>{tx.type === 'Inflow' ? <ArrowDownLeft className="w-5 h-5 md:w-6 md:h-6" /> : <ArrowUpRight className="w-5 h-5 md:w-6 md:h-6" />}</div><div className="overflow-hidden"><p className={`font-black text-xs md:text-sm uppercase truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{tx.description || tx.type}</p><p className="text-[9px] md:text-[10px] text-slate-400 font-bold uppercase tracking-tighter truncate">{tx.method} • {new Date(tx.date).toLocaleDateString()}</p></div></div>
-                             <div className="text-right flex-shrink-0 ml-2"><p className={`font-black text-sm md:text-base ${tx.type === 'Inflow' ? 'text-emerald-500' : 'text-rose-500'}`}>{tx.type === 'Inflow' ? '+' : '-'}{tx.amount.toLocaleString()}</p></div>
+                             <div className="flex items-center gap-3 md:gap-4 overflow-hidden">
+                               <div className={`w-10 h-10 md:w-12 md:h-12 flex-shrink-0 rounded-2xl flex items-center justify-center ${tx.type === 'Inflow' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                 {tx.type === 'Inflow' ? <ArrowDownLeft className="w-5 h-5 md:w-6 md:h-6" /> : <ArrowUpRight className="w-5 h-5 md:w-6 md:h-6" />}
+                               </div>
+                               <div className="overflow-hidden">
+                                 <p className={`font-black text-xs md:text-sm uppercase truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{tx.description || tx.type}</p>
+                                 <p className="text-[9px] md:text-[10px] text-slate-400 font-bold uppercase tracking-tighter truncate">{tx.method} • {new Date(tx.date).toLocaleDateString()}</p>
+                               </div>
+                             </div>
+                             <div className="text-right flex-shrink-0 ml-2">
+                               <p className={`font-black text-sm md:text-base ${tx.type === 'Inflow' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                 {tx.type === 'Inflow' ? '+' : '-'}{tx.amount.toLocaleString()}
+                               </p>
+                             </div>
                           </div>
                         ))}
                      </div>
                    )}
                 </div>
                 <div className="fixed bottom-6 left-6 right-6 md:left-auto md:right-12 md:bottom-32 md:flex-col md:w-auto md:gap-4 flex gap-3 z-10">
-                  <button onClick={() => setShowTransactionModal({ show: true, type: 'Outflow' })} className="bg-rose-600 text-white p-4 md:p-5 rounded-[2rem] font-black text-sm md:text-lg shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-2 flex-1 md:flex-none md:min-w-[140px]"><Plus className="w-5 h-5 md:w-6 md:h-6" /> SAÍDA</button>
-                  <button onClick={() => setShowTransactionModal({ show: true, type: 'Inflow' })} className="bg-emerald-600 text-white p-4 md:p-5 rounded-[2rem] font-black text-sm md:text-lg shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-2 flex-1 md:flex-none md:min-w-[140px]"><Plus className="w-5 h-5 md:w-6 md:h-6" /> ENTRADA</button>
+                  <button onClick={() => setShowTransactionModal({ show: true, type: 'Outflow' })} className="bg-rose-600 text-white p-4 md:p-5 rounded-[2rem] font-black text-sm md:text-lg shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-2 flex-1 md:flex-none md:min-w-[140px]">
+                    <Plus className="w-5 h-5 md:w-6 md:h-6" /> SAÍDA
+                  </button>
+                  <button onClick={() => setShowTransactionModal({ show: true, type: 'Inflow' })} className="bg-emerald-600 text-white p-4 md:p-5 rounded-[2rem] font-black text-sm md:text-lg shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-2 flex-1 md:flex-none md:min-w-[140px]">
+                    <Plus className="w-5 h-5 md:w-6 md/h-6" /> ENTRADA
+                  </button>
                 </div>
              </div>
           )}
@@ -609,7 +1164,9 @@ const App: React.FC = () => {
           {view === 'client-archive' && selectedClient && (
             <div className="min-h-full flex flex-col animate-in slide-in-from-right-10 duration-500 no-scrollbar">
               <div className="p-8 pt-12 pb-6 flex items-center gap-4">
-                <button onClick={() => setView('client-detail')} className={`p-3 rounded-2xl transition-all ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-white border border-slate-100 text-slate-600 shadow-sm'}`}><ChevronLeft className="w-6 h-6" /></button>
+                <button onClick={() => setView('client-detail')} className={`p-3 rounded-2xl transition-all ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-white border border-slate-100 text-slate-600 shadow-sm'}`}>
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
                 <h2 className={`text-2xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{t.client_archive_title}</h2>
               </div>
               <div className="flex-1 p-6 space-y-8">
@@ -621,11 +1178,34 @@ const App: React.FC = () => {
                 ) : (
                   selectedClient.archive.map((archive, idx) => (
                     <div key={idx} className="space-y-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-1 h-6 bg-blue-500 rounded-full"></div>
-                        <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                          {t.archive_date}: {new Date(archive.dateClosed).toLocaleDateString()}
-                        </p>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-1 h-6 bg-blue-500 rounded-full"></div>
+                          <div>
+                            <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                              {t.archive_date}: {new Date(archive.dateClosed).toLocaleDateString()}
+                            </p>
+                            {/* Mostrar número da fatura */}
+                            {archive.invoiceNumber && (
+                              <p className={`text-[9px] font-bold mt-1 flex items-center gap-1 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                                <FileText className="w-3 h-3" />
+                                Fatura: <span className="text-blue-500 font-black">{archive.invoiceNumber}</span>
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        {/* Botão para copiar número da fatura */}
+                        {archive.invoiceNumber && (
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText(archive.invoiceNumber);
+                              alert(`Número da fatura copiado: ${archive.invoiceNumber}`);
+                            }}
+                            className="text-[8px] px-2 py-1 bg-blue-500/10 text-blue-500 rounded-lg font-bold flex items-center gap-1 hover:bg-blue-500/20 transition-colors"
+                          >
+                            <Copy className="w-3 h-3" /> Copiar
+                          </button>
+                        )}
                       </div>
                       <div className="space-y-3">
                         {archive.transactions.map(tx => (
@@ -655,33 +1235,69 @@ const App: React.FC = () => {
           {view === 'settings' && (
             <div className="p-6 pb-24 space-y-10 animate-in fade-in duration-500">
                <h2 className={`text-2xl md:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{t.settings_title}</h2>
-               
-               {/* App Management Section */}
-               <section className="space-y-4">
-                  <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Aplicativo</h3>
-                  <button onClick={() => setIsAppBoxOpen(!isAppBoxOpen)} className={`w-full flex items-center justify-between p-5 md:p-6 rounded-[2.5rem] shadow-sm border transition-all ${isDark ? 'bg-slate-800/40 border-slate-700/50 hover:bg-slate-800/60' : 'bg-white border-slate-100 hover:bg-slate-50'}`}>
-                    <div className="flex items-center gap-4"><div className="w-10 h-10 md:w-12 md:h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600"><AppWindow className="w-5 h-5 md:w-6 md:h-6" /></div><div className="text-left overflow-hidden"><p className="font-black text-base md:text-lg truncate">{settings.appName}</p><p className="text-[10px] md:text-xs font-bold text-slate-400 tracking-tight">Personalize seu sistema</p></div></div>
-                    {isAppBoxOpen ? <ChevronUp className="w-5 h-5 text-slate-300" /> : <ChevronDown className="w-5 h-5 text-slate-300" />}
+
+               {/* SEÇÃO DE BACKUP LOCAL - NOVO SISTEMA */}
+              <section className="space-y-4">
+                <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Backup e Restauração</h3>
+                <div className={`p-5 md:p-6 rounded-[2.5rem] shadow-sm border space-y-4 ${isDark ? 'bg-slate-800/40 border-slate-700/50' : 'bg-white border-slate-100'}`}>
+                  
+                  {/* BOTÃO 1: EXPORTAR BACKUP */}
+                  <button 
+                    onClick={() => exportBackup()}
+                    className="w-full flex items-center justify-between p-4 rounded-2xl bg-blue-600/10 text-blue-600 font-bold active:scale-95 transition-all hover:bg-blue-600/20"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-blue-600/20 rounded-xl flex items-center justify-center">
+                        <ArrowUpRight className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <span className="text-sm">Exportar Backup</span>
+                        <p className="text-[10px] opacity-70">Salvar arquivo .json localmente</p>
+                      </div>
+                    </div>
+                    <Printer className="w-5 h-5" />
                   </button>
-                  {isAppBoxOpen && (
-                    <GlassCard isDark={isDark} className="p-5 md:p-6 space-y-4 animate-in slide-in-from-top-4 duration-300">
-                        <div><label className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">{t.app_name_label}</label><input type="text" className={`w-full p-4 rounded-2xl text-sm font-bold border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`} value={settings.appName} onChange={(e) => setSettings({...settings, appName: e.target.value})} /></div>
-                    </GlassCard>
-                  )}
-               </section>
+
+                  {/* BOTÃO 2: IMPORTAR BACKUP */}
+                  <div className="relative">
+                    <input 
+                      type="file" 
+                      accept=".json" 
+                      onChange={(e) => importBackup(e)}
+                      className="absolute inset-0 opacity-0 cursor-pointer z-10" 
+                      id="backup-file-input"
+                    />
+                    <button 
+                      onClick={() => document.getElementById('backup-file-input')?.click()}
+                      className="w-full flex items-center justify-between p-4 rounded-2xl bg-emerald-600/10 text-emerald-600 font-bold active:scale-95 transition-all hover:bg-emerald-600/20"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-emerald-600/20 rounded-xl flex items-center justify-center">
+                          <ArrowDownLeft className="w-4 h-4" />
+                        </div>
+                        <div className="text-left">
+                          <span className="text-sm">Importar Backup</span>
+                          <p className="text-[10px] opacity-70">Restaurar de arquivo .json</p>
+                        </div>
+                      </div>
+                      <Archive className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                </div>
+              </section>
 
                {/* User Profile Section */}
                <section className="space-y-4">
                   <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">{t.settings_user_profile}</h3>
                   <button onClick={() => setIsUserBoxOpen(!isUserBoxOpen)} className={`w-full flex items-center justify-between p-5 md:p-6 rounded-[2.5rem] shadow-sm border transition-all ${isDark ? 'bg-slate-800/40 border-slate-700/50 hover:bg-slate-800/60' : 'bg-white border-slate-100 hover:bg-slate-50'}`}>
-                    <div className="flex items-center gap-4"><div className="w-10 h-10 md:w-12 md:h-12 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600"><UserIcon className="w-5 h-5 md:w-6 md:h-6" /></div><div className="text-left overflow-hidden max-w-[180px] md:max-w-xs"><p className="font-black text-base md:text-lg truncate">{user.name || 'Agente'}</p><p className="text-[10px] md:text-xs font-bold text-slate-400 tracking-tight truncate">{user.phone}</p></div></div>
+                    <div className="flex items-center gap-4"><div className="w-10 h-10 md:w-12 md:h-12 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600"><UserIcon className="w-5 h-5 md:w-6 md:h-6" /></div><div className="text-left overflow-hidden max-w-[180px] md:max-w-xs"><p className="font-black text-base md:text-lg truncate">{user.name || 'Agente'}</p></div></div>
                     {isUserBoxOpen ? <ChevronUp className="w-5 h-5 text-slate-300" /> : <ChevronDown className="w-5 h-5 text-slate-300" />}
                   </button>
                   {isUserBoxOpen && (
                     <GlassCard isDark={isDark} className="p-5 md:p-6 space-y-4 animate-in slide-in-from-top-4 duration-300">
+                        {/* 2. Apenas o campo de nome */}
                         <div><label className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">{t.login_name}</label><input type="text" className={`w-full p-4 rounded-2xl text-sm font-bold border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`} value={user.name} onChange={(e) => setUser({...user, name: e.target.value})} /></div>
-                        <div><label className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">{t.login_phone}</label><input type="tel" className={`w-full p-4 rounded-2xl text-sm font-bold border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`} value={user.phone} onChange={(e) => setUser({...user, phone: e.target.value})} /></div>
-                        <div><label className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">{t.login_pass}</label><input type="password" placeholder="••••••••" className={`w-full p-4 rounded-2xl text-sm font-bold border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`} value={user.password || ''} onChange={(e) => setUser({...user, password: e.target.value})} /></div>
                     </GlassCard>
                   )}
                </section>
@@ -823,8 +1439,6 @@ const App: React.FC = () => {
                     </div>
                   </div>
                </section>
-
-               <button onClick={() => setView('login')} className="w-full p-5 md:p-6 bg-rose-500/10 text-rose-500 rounded-3xl font-black uppercase tracking-[0.2em] text-[10px] md:text-xs flex items-center justify-center gap-3 active:scale-95 transition-all hover:bg-rose-500/20"><LogOut className="w-5 h-5" /> {t.settings_logout}</button>
             </div>
           )}
         </main>
@@ -839,10 +1453,67 @@ const App: React.FC = () => {
           </nav>
         )}
 
-        {showFloatModal && <FloatManagementModal isDark={isDark} t={t} settings={settings} onClose={() => setShowFloatModal(false)} onUpdate={(m, a) => setManualFloatAdjustments(prev => ({ ...prev, [m]: (prev[m] || 0) + a }))} />}
-        {showAddClient && <AddClientModal isDark={isDark} t={t} clients={clients} setShowAddClient={setShowAddClient} initialSearch={searchQuery} handleSaveNewClient={(n, p) => { setClients([...clients, { id: Math.random().toString(36).substring(2, 9), name: n, phone: p, activeAccount: [], archive: [] }]); setShowAddClient(false); setSearchQuery(''); }} />}
-        {showEditClient && selectedClient && <EditClientModal isDark={isDark} t={t} client={selectedClient} clients={clients} onClose={() => setShowEditClient(false)} onSave={(n, p) => { setClients(clients.map(c => c.id === selectedClient.id ? {...c, name: n, phone: p} : c)); setShowEditClient(false); }} onDelete={() => { setClients(clients.filter(c => c.id !== selectedClient.id)); setShowEditClient(false); setView('clients'); }} />}
-        {showTransactionModal.show && <TransactionModal isDark={isDark} t={t} settings={settings} showTransactionModal={showTransactionModal} selectedClient={selectedClient} clients={clients} setClients={setClients} setShowTransactionModal={setShowTransactionModal} setShowSMSConfirmModal={setShowSMSConfirmModal} agentBalances={agentBalances} />}
+        {showFloatModal && <FloatManagementModal 
+          isDark={isDark} 
+          t={t} 
+          settings={settings} 
+          onClose={() => setShowFloatModal(false)} 
+          onUpdate={(m, a) => setManualFloatAdjustments(prev => ({ ...prev, [m]: (prev[m] || 0) + a }))}
+          onCreateAutomaticBackup={handleCreateAutomaticBackup}
+        />}
+        
+        {showAddClient && <AddClientModal 
+          isDark={isDark} 
+          t={t} 
+          clients={clients} 
+          setShowAddClient={setShowAddClient} 
+          handleSaveNewClient={(n, p) => { 
+            setClients([...clients, { 
+              id: Math.random().toString(36).substring(2, 9), 
+              name: n, 
+              phone: p, 
+              activeAccount: [], 
+              archive: [] 
+            }]); 
+            setShowAddClient(false); 
+            setSearchQuery(''); 
+          }} 
+          initialSearch={searchQuery}
+          onCreateAutomaticBackup={handleCreateAutomaticBackup}
+        />}
+        
+        {showEditClient && selectedClient && <EditClientModal 
+          isDark={isDark} 
+          t={t} 
+          client={selectedClient} 
+          clients={clients} 
+          onClose={() => setShowEditClient(false)} 
+          onSave={(n, p) => { 
+            setClients(clients.map(c => c.id === selectedClient.id ? {...c, name: n, phone: p} : c)); 
+            setShowEditClient(false); 
+          }} 
+          onDelete={() => { 
+            setClients(clients.filter(c => c.id !== selectedClient.id)); 
+            setShowEditClient(false); 
+            setView('clients'); 
+          }}
+          onCreateAutomaticBackup={handleCreateAutomaticBackup}
+        />}
+        
+        {showTransactionModal.show && <TransactionModal 
+          isDark={isDark} 
+          t={t} 
+          settings={settings} 
+          showTransactionModal={showTransactionModal} 
+          selectedClient={selectedClient} 
+          clients={clients} 
+          setClients={setClients} 
+          setShowTransactionModal={setShowTransactionModal} 
+          setShowSMSConfirmModal={setShowSMSConfirmModal} 
+          agentBalances={agentBalances}
+          onCreateAutomaticBackup={handleCreateAutomaticBackup}
+        />}
+        
         {showSMSConfirmModal.show && (
            <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-lg">
              <div className={`${isDark ? 'bg-slate-900 border border-white/5' : 'bg-white'} w-full max-w-[340px] rounded-[3.5rem] p-8 shadow-2xl animate-in zoom-in-95 duration-200`}>
@@ -856,59 +1527,6 @@ const App: React.FC = () => {
              </div>
            </div>
         )}
-      </div>
-    </div>
-  );
-};
-
-const AddClientModal: React.FC<{ isDark: boolean, t: any, clients: Client[], setShowAddClient: (s: boolean) => void, handleSaveNewClient: (n: string, p: string) => void, initialSearch: string }> = ({ isDark, t, clients, setShowAddClient, handleSaveNewClient, initialSearch }) => {
-  const isPhone = initialSearch && /^[0-9+]+$/.test(initialSearch);
-  const [newName, setNewName] = useState(!isPhone ? initialSearch : '');
-  const [newPhone, setNewPhone] = useState(isPhone ? initialSearch : '');
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSave = () => {
-    const trimmedName = newName.trim();
-    const trimmedPhone = newPhone.trim();
-
-    if (!trimmedName || !trimmedPhone) {
-      setError("Preencha todos os campos.");
-      return;
-    }
-
-    const isDuplicate = clients.some(c => 
-      c.name.toLowerCase() === trimmedName.toLowerCase() || 
-      c.phone === trimmedPhone
-    );
-
-    if (isDuplicate) {
-      setError("Já existe um cliente com este nome ou número.");
-      return;
-    }
-
-    handleSaveNewClient(trimmedName, trimmedPhone);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm">
-      <div className={`${isDark ? 'bg-slate-900 border border-white/5' : 'bg-white'} w-full max-w-sm rounded-[40px] p-8 shadow-2xl animate-in zoom-in-95 duration-200`}>
-        <h3 className={`text-xl font-bold mb-6 ${isDark ? 'text-white' : 'text-blue-900'}`}>{t.client_new}</h3>
-        
-        {error && (
-          <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2 text-rose-500 text-[10px] font-bold">
-            <AlertCircle className="w-4 h-4" />
-            {error}
-          </div>
-        )}
-
-        <div className="space-y-4 mb-8">
-          <input type="text" placeholder={t.login_name} className={`w-full p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 transition-all ${isDark ? 'bg-slate-800 text-white placeholder-slate-500' : 'bg-gray-100 text-gray-900 placeholder-gray-400'}`} value={newName} onChange={(e) => { setNewName(e.target.value); setError(null); }} />
-          <input type="tel" placeholder={t.login_phone + " (+258)"} className={`w-full p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 transition-all ${isDark ? 'bg-slate-800 text-white placeholder-slate-500' : 'bg-gray-100 text-gray-900 placeholder-gray-400'}`} value={newPhone} onChange={(e) => { setNewPhone(e.target.value); setError(null); }} />
-        </div>
-        <div className="flex gap-4">
-          <button onClick={() => setShowAddClient(false)} className={`flex-1 p-4 rounded-2xl font-bold transition-all ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-gray-500'}`}>{t.tx_cancel}</button>
-          <button onClick={handleSave} className="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition-all hover:brightness-110">{t.modal_save}</button>
-        </div>
       </div>
     </div>
   );
