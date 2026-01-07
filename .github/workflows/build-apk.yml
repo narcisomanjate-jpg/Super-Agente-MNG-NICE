@@ -16,17 +16,39 @@ jobs:
     - name: 🟢 Setup Node.js 22
       uses: actions/setup-node@v4
       with:
-        node-version: '22'  # ← VERSÃO CORRIGIDA
+        node-version: '22'
         cache: 'npm'
         
     - name: 📦 Instalar dependências
       run: |
-        npm ci
+        npm ci || npm install
         npm install -g @capacitor/cli
         
-    - name: ⚙️ Configurar Capacitor (usando arquivo existente)
+    - name: 🏗️ Criar pasta dist (seu site web)
       run: |
-        # Verifica se temos os arquivos de configuração
+        # Cria diretório dist
+        mkdir -p dist
+        
+        # Copia arquivos principais
+        cp index.html dist/ || true
+        cp *.css dist/ 2>/dev/null || true
+        cp *.js dist/ 2>/dev/null || true
+        
+        # Copia assets se existirem
+        if [ -d "assets" ]; then
+          cp -r assets dist/ || true
+        fi
+        
+        if [ -d "public" ]; then
+          cp -r public dist/ || true
+        fi
+        
+        echo "✅ Pasta dist criada com sucesso"
+        ls -la dist/
+        
+    - name: ⚙️ Configurar Capacitor
+      run: |
+        # Usa configuração existente
         if [ -f "capacitor.config.ts" ] || [ -f "capacitor.config.json" ]; then
           echo "✅ Configuração do Capacitor encontrada"
           npx cap add android
