@@ -95,7 +95,8 @@
         }
     </style>
 
-    <!-- Import Map -->
+    <!-- Import Map para CDNs -->
+
     <script type="importmap">
     {
       "imports": {
@@ -109,6 +110,8 @@
       }
     }
     </script>
+  <script type="module" crossorigin src="/super-agente-mng-nice/assets/index-DPULid6r.js"></script>
+  <link rel="modulepreload" crossorigin href="/super-agente-mng-nice/assets/vendor-uS-d4TUT.js">
 </head>
 <body class="bg-gray-50 antialiased overflow-hidden">
     <!-- Splash Screen -->
@@ -119,31 +122,7 @@
     <!-- App Root -->
     <div id="root"></div>
     
-    <!-- Service Worker & Splash Script -->
-    <script>
-        // Remove splash screen após carregamento
-        window.addEventListener('load', function() {
-            setTimeout(function() {
-                const splash = document.getElementById('splash-screen');
-                if (splash) {
-                    splash.style.opacity = '0';
-                    setTimeout(() => splash.remove(), 500);
-                }
-            }, 1500);
-            
-            // Registrar Service Worker
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('./sw.js', { scope: '/' })
-                    .then(reg => console.log('Service Worker registrado com sucesso'))
-                    .catch(err => console.log('Erro no Service Worker:', err));
-            }
-        });
-        
-        // Fallback: remover splash se algo der errado
-        setTimeout(function() {
-            const splash = document.getElementById('splash-screen');
-            if (splash) splash.remove();
-        }, 3000);
-    </script>
+    <!-- Ponto de Entrada do React App - VERSÃO CORRIGIDA -->
+    
 </body>
 </html>
