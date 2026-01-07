@@ -37,7 +37,7 @@ jobs:
         [ -d "assets" ] && cp -r assets dist/
         [ -d "public" ] && cp -r public dist/
         
-    - name: Create Config Manually
+    - name: Create Config
       run: |
         echo '{
           "appId": "com.narcisomanjate.superagentemng",
@@ -45,10 +45,8 @@ jobs:
           "webDir": "dist"
         }' > capacitor.config.json
         
-    - name: Init Android (SEM npx cap init)
+    - name: Init Android
       run: |
-        # Cria estrutura manualmente
-        mkdir -p android
         npx cap add android --yes
         npx cap sync android
         
@@ -101,7 +99,7 @@ jobs:
         [ -d "assets" ] && cp -r assets dist/
         [ -d "public" ] && cp -r public dist/
         
-    - name: Create Config Manually
+    - name: Create Config
       run: |
         echo '{
           "appId": "com.narcisomanjate.superagentemng",
@@ -109,10 +107,8 @@ jobs:
           "webDir": "dist"
         }' > capacitor.config.json
         
-    - name: Init Android (SEM npx cap init)
+    - name: Init Android
       run: |
-        # Cria estrutura manualmente
-        mkdir -p android
         npx cap add android --yes
         npx cap sync android
         
@@ -165,7 +161,7 @@ jobs:
         [ -d "assets" ] && cp -r assets dist/
         [ -d "public" ] && cp -r public dist/
         
-    - name: Create Config Manually
+    - name: Create Config
       run: |
         echo '{
           "appId": "com.narcisomanjate.superagentemng",
@@ -173,10 +169,8 @@ jobs:
           "webDir": "dist"
         }' > capacitor.config.json
         
-    - name: Init Android (SEM npx cap init)
+    - name: Init Android
       run: |
-        # Cria estrutura manualmente
-        mkdir -p android
         npx cap add android --yes
         npx cap sync android
         
