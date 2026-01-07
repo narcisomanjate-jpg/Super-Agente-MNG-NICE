@@ -13,7 +13,7 @@ jobs:
     - name: 🛎️ Checkout do código
       uses: actions/checkout@v4
       
-    - name: 🟢 Setup Node.js 18 (mais compatível)
+    - name: 🟢 Setup Node.js 18
       uses: actions/setup-node@v4
       with:
         node-version: '18'
@@ -25,16 +25,13 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
         
-    - name: 📦 Instalar Capacitor global
+    - name: 📦 Instalar Capacitor
       run: |
         npm install -g @capacitor/cli @capacitor/core @capacitor/android
         
     - name: 🏗️ Preparar projeto web
       run: |
-        # Cria estrutura mínima
         mkdir -p dist
-        
-        # Copia index.html e assets
         cp index.html dist/
         
         if [ -d "assets" ]; then
@@ -48,12 +45,10 @@ jobs:
         echo "📁 Conteúdo da pasta dist:"
         ls -la dist/
         
-    - name: ⚙️ Inicializar Capacitor do ZERO
+    - name: ⚙️ Inicializar Capacitor
       run: |
-        # Remove configs antigas se existirem
         rm -rf android ios
         
-        # Cria capacitor.config.json mínimo
         echo '{
           "appId": "com.narcisomanjate.superagentemng",
           "appName": "Super Agente MNG",
@@ -70,16 +65,8 @@ jobs:
           }
         }' > capacitor.config.json
         
-        # Inicializa Capacitor SEM interação
-        npx cap init --web-dir dist \
-          --package-id com.narcisomanjate.superagentemng \
-          --app-name "Super Agente MNG" \
-          --yes
-        
-        # Adiciona plataforma Android
+        npx cap init --web-dir dist --package-id com.narcisomanjate.superagentemng --app-name "Super Agente MNG" --yes
         npx cap add android --yes
-        
-        # Sincroniza
         npx cap sync android
         
         echo "✅ Capacitor Android configurado"
@@ -88,10 +75,7 @@ jobs:
       run: |
         cd android
         chmod +x gradlew
-        
-        # Configura Java 17 explicitamente
         echo "org.gradle.java.home=/usr/lib/jvm/temurin-17-jdk-amd64" > gradle.properties
-        
         ./gradlew assembleDebug --no-daemon
         
     - name: 📤 Upload APK
@@ -108,136 +92,15 @@ jobs:
         tag_name: apk-v${{ github.run_number }}
         name: "Super Agente MNG APK"
         body: |
-          📱 **APK gerado automaticamente**
+          📱 APK gerado automaticamente
           
-          **Instalação:**
-          1. Baixe o arquivo `.apk`
+          Instalação:
+          1. Baixe o arquivo .apk
           2. Transfira para seu celular Android
           3. Permita "Fontes desconhecidas"
           4. Instale e teste!
           
-          **Build #${{ github.run_number }}**
-          - Commit: ${{ github.sha }}
-          - Data: ${{ github.event.head_commit.timestamp }}
-        files: android/app/build/outputs/apk/debug/*.apkname: Build Android APK Automático
-
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
-
-jobs:
-  build-android-apk:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: 🛎️ Checkout do código
-      uses: actions/checkout@v4
-      
-    - name: 🟢 Setup Node.js 18 (mais compatível)
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        cache: 'npm'
-        
-    - name: ☕ Setup Java 17
-      uses: actions/setup-java@v3
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-        
-    - name: 📦 Instalar Capacitor global
-      run: |
-        npm install -g @capacitor/cli @capacitor/core @capacitor/android
-        
-    - name: 🏗️ Preparar projeto web
-      run: |
-        # Cria estrutura mínima
-        mkdir -p dist
-        
-        # Copia index.html e assets
-        cp index.html dist/
-        
-        if [ -d "assets" ]; then
-          cp -r assets/ dist/
-        fi
-        
-        if [ -d "public" ]; then
-          cp -r public/ dist/
-        fi
-        
-        echo "📁 Conteúdo da pasta dist:"
-        ls -la dist/
-        
-    - name: ⚙️ Inicializar Capacitor do ZERO
-      run: |
-        # Remove configs antigas se existirem
-        rm -rf android ios
-        
-        # Cria capacitor.config.json mínimo
-        echo '{
-          "appId": "com.narcisomanjate.superagentemng",
-          "appName": "Super Agente MNG",
-          "webDir": "dist",
-          "bundledWebRuntime": false,
-          "plugins": {
-            "SplashScreen": {
-              "launchShowDuration": 2200,
-              "launchAutoHide": true,
-              "backgroundColor": "#667eea",
-              "androidScaleType": "CENTER_CROP",
-              "splashFullScreen": true
-            }
-          }
-        }' > capacitor.config.json
-        
-        # Inicializa Capacitor SEM interação
-        npx cap init --web-dir dist \
-          --package-id com.narcisomanjate.superagentemng \
-          --app-name "Super Agente MNG" \
-          --yes
-        
-        # Adiciona plataforma Android
-        npx cap add android --yes
-        
-        # Sincroniza
-        npx cap sync android
-        
-        echo "✅ Capacitor Android configurado"
-        
-    - name: 🏭 Build APK
-      run: |
-        cd android
-        chmod +x gradlew
-        
-        # Configura Java 17 explicitamente
-        echo "org.gradle.java.home=/usr/lib/jvm/temurin-17-jdk-amd64" > gradle.properties
-        
-        ./gradlew assembleDebug --no-daemon
-        
-    - name: 📤 Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: super-agente-apk
-        path: android/app/build/outputs/apk/debug/*.apk
-        retention-days: 7
-        
-    - name: 🎉 Criar Release
-      uses: softprops/action-gh-release@v1
-      if: success()
-      with:
-        tag_name: apk-v${{ github.run_number }}
-        name: "Super Agente MNG APK"
-        body: |
-          📱 **APK gerado automaticamente**
-          
-          **Instalação:**
-          1. Baixe o arquivo `.apk`
-          2. Transfira para seu celular Android
-          3. Permita "Fontes desconhecidas"
-          4. Instale e teste!
-          
-          **Build #${{ github.run_number }}**
+          Build #${{ github.run_number }}
           - Commit: ${{ github.sha }}
           - Data: ${{ github.event.head_commit.timestamp }}
         files: android/app/build/outputs/apk/debug/*.apk
