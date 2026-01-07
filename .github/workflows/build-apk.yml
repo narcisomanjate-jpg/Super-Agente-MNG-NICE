@@ -13,10 +13,10 @@ jobs:
     - name: 🛎️ Checkout do código
       uses: actions/checkout@v4
       
-    - name: 🟢 Setup Node.js
+    - name: 🟢 Setup Node.js 22
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '22'  # ← VERSÃO CORRIGIDA
         cache: 'npm'
         
     - name: 📦 Instalar dependências
@@ -24,20 +24,19 @@ jobs:
         npm ci
         npm install -g @capacitor/cli
         
-    - name: ⚙️ Configurar Capacitor
+    - name: ⚙️ Configurar Capacitor (usando arquivo existente)
       run: |
-        npx cap init --web-dir dist --package-id com.narcisomanjate.superagentemng --app-name "Super Agente MNG" --yes
-        npx cap add android
-        
-        # Usa o config.json se existir
-        if [ -f "capacitor.config.json" ]; then
-          echo "✅ Usando capacitor.config.json"
+        # Verifica se temos os arquivos de configuração
+        if [ -f "capacitor.config.ts" ] || [ -f "capacitor.config.json" ]; then
+          echo "✅ Configuração do Capacitor encontrada"
+          npx cap add android
+          npx cap sync android
         else
-          # Converte .ts para .json se necessário
-          npx cap sync
+          echo "⚠️ Criando configuração básica..."
+          npx cap init --web-dir dist --package-id com.narcisomanjate.superagentemng --app-name "Super Agente MNG" --yes
+          npx cap add android
+          npx cap sync android
         fi
-        
-        npx cap sync android
         
     - name: 🏭 Build APK
       run: |
