@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   LayoutDashboard, 
   Users, 
@@ -31,35 +31,72 @@ import {
   UserPlus,
   Archive,
   Copy,
-  FileText
+  FileText,
+  Cloud,
+  CloudOff,
+  LogOut,
+  MoreVertical,
+  CheckCircle,
+  Circle,
+  Download,
+  Upload
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Client, Transaction, UserProfile, AppSettings, ViewState, PaymentMethod } from './types';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
+import { Client, Transaction, UserProfile, AppSettings, ViewState, PaymentMethod, FirebaseUser } from './types';
 import { INITIAL_SETTINGS, translations } from './constants';
 import localforage from 'localforage';
+
+// Firebase imports
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut,
+  onAuthStateChanged,
+  User as FirebaseAuthUser,
+  GoogleAuthProvider,
+  signInWithPopup
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  updateDoc,
+  collection,
+  serverTimestamp 
+} from 'firebase/firestore';
+
+// ⭐⭐ CONFIGURAÇÃO FIREBASE - USANDO VARIÁVEIS DE AMBIENTE ⭐⭐
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+};
+
+// Inicializar Firebase
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+const db = getFirestore(firebaseApp);
+const googleProvider = new GoogleAuthProvider();
 
 // ⭐⭐ SOLICITAR ARMAZENAMENTO PERSISTENTE ⭐⭐
 const requestPersistentStorage = async () => {
   try {
     if (navigator.storage && navigator.storage.persist) {
       const isPersisted = await navigator.storage.persisted();
-      console.log('📦 Armazenamento persistente atual:', isPersisted);
       
       if (!isPersisted) {
-        const permission = await navigator.storage.persist();
-        console.log('📦 Permissão para persistência concedida?', permission);
-        
-        if (permission) {
-          alert('✅ Armazenamento configurado como PERSISTENTE!\nSeus dados não serão apagados automaticamente.');
-        } else {
-          alert('⚠️ O navegador não concedeu persistência.\nOs dados PODEM ser apagados ao limpar o cache.');
-        }
+        await navigator.storage.persist();
       }
-    } else {
-      console.warn('⚠️ Persistent Storage API não suportada');
     }
   } catch (error) {
-    console.error('❌ Erro ao solicitar armazenamento persistente:', error);
+    // Silenciar erros de persistência
   }
 };
 
@@ -92,10 +129,432 @@ const createAutomaticBackup = (user: UserProfile, clients: Client[], settings: A
     // Salvar no LocalStorage (sobrescreve o anterior)
     localStorage.setItem('super_agente_backup', JSON.stringify(backupData));
     
-    console.log('✅ Backup automático criado/atualizado!');
-    
   } catch (erro) {
     console.error('❌ Erro ao criar backup automático:', erro);
+  }
+};
+
+// --- NOVAS FUNÇÕES: EXPORTAR/IMPORTAR DADOS LOCAIS ---
+const exportLocalData = (
+  user: UserProfile, 
+  clients: Client[], 
+  settings: AppSettings, 
+  manualFloatAdjustments: Record<PaymentMethod, number>, 
+  invoiceCounter: number
+) => {
+  try {
+    const exportData = {
+      app: "Super Agente - Backup Manual",
+      exportDate: new Date().toISOString(),
+      version: "1.0",
+      data: {
+        user,
+        clients,
+        settings,
+        manualFloatAdjustments,
+        invoiceCounter
+      }
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backup_super_agente_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    alert('✅ Backup exportado com sucesso! Guarde este arquivo em segurança.');
+    return true;
+  } catch (error) {
+    console.error('❌ Erro ao exportar dados:', error);
+    alert('❌ Erro ao exportar dados.');
+    return false;
+  }
+};
+
+const importLocalData = (
+  file: File,
+  setUser: (user: UserProfile) => void,
+  setClients: (clients: Client[]) => void,
+  setSettings: (settings: AppSettings) => void,
+  setManualFloatAdjustments: (adjustments: Record<PaymentMethod, number>) => void,
+  setInvoiceCounter: (counter: number) => void
+): Promise<boolean> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    
+    reader.onload = async (e) => {
+      try {
+        const importedData = JSON.parse(e.target?.result as string);
+        
+        // Validação básica do arquivo
+        if (!importedData.data || !Array.isArray(importedData.data.clients)) {
+          alert('❌ Arquivo de backup inválido ou corrompido.');
+          resolve(false);
+          return;
+        }
+        
+        const { user, clients, settings, manualFloatAdjustments, invoiceCounter } = importedData.data;
+        
+        // Confirmar substituição
+        if (!window.confirm('⚠️  Isso substituirá todos os seus dados atuais. Deseja continuar?')) {
+          resolve(false);
+          return;
+        }
+        
+        // Atualizar estados
+        setUser(user || { name: 'Agente', isFirstTime: false });
+        setClients(clients || []);
+        setSettings(settings || INITIAL_SETTINGS);
+        setManualFloatAdjustments(manualFloatAdjustments || {});
+        setInvoiceCounter(invoiceCounter || 1);
+        
+        // Salvar no storage local
+        await Promise.all([
+          localforage.setItem('agent_user', user),
+          localforage.setItem('agent_clients', clients || []),
+          localforage.setItem('agent_settings', settings || INITIAL_SETTINGS),
+          localforage.setItem('agent_float', manualFloatAdjustments || {}),
+          localforage.setItem('agent_invoice_counter', invoiceCounter || 1)
+        ]);
+        
+        // Criar backup automático com os novos dados
+        createAutomaticBackup(user, clients, settings, manualFloatAdjustments, invoiceCounter);
+        
+        alert(`✅ Backup importado com sucesso!\n${clients?.length || 0} clientes restaurados.`);
+        resolve(true);
+      } catch (error) {
+        console.error('❌ Erro ao importar dados:', error);
+        alert('❌ Erro ao importar arquivo. Verifique se o arquivo está correto.');
+        resolve(false);
+      }
+    };
+    
+    reader.onerror = () => {
+      alert('❌ Erro ao ler o arquivo.');
+      resolve(false);
+    };
+    
+    reader.readAsText(file);
+  });
+};
+
+// --- Funções Firebase ---
+const syncDataToFirebase = async (
+  firebaseUser: FirebaseAuthUser, 
+  userData: UserProfile, 
+  clients: Client[], 
+  settings: AppSettings, 
+  manualFloatAdjustments: Record<PaymentMethod, number>, 
+  invoiceCounter: number
+) => {
+  try {
+    if (!firebaseUser) {
+      return false;
+    }
+
+    const userDocRef = doc(db, 'users', firebaseUser.uid);
+    
+    const dataToSync = {
+      user: userData,
+      clients,
+      settings,
+      manualFloatAdjustments,
+      invoiceCounter,
+      lastSynced: serverTimestamp(),
+      email: firebaseUser.email,
+      syncEnabled: true
+    };
+
+    await setDoc(userDocRef, dataToSync, { merge: true });
+    return true;
+  } catch (error) {
+    console.error('❌ Erro ao sincronizar com Firebase:', error);
+    return false;
+  }
+};
+
+const loadDataFromFirebase = async (firebaseUser: FirebaseAuthUser) => {
+  try {
+    if (!firebaseUser) {
+      return null;
+    }
+
+    const userDocRef = doc(db, 'users', firebaseUser.uid);
+    const userDoc = await getDoc(userDocRef);
+
+    if (userDoc.exists()) {
+      const data = userDoc.data();
+      return data;
+    } else {
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Erro ao carregar dados do Firebase:', error);
+    return null;
+  }
+};
+
+// Função para gerar PDF da fatura
+const generateInvoicePDF = async (client: Client, archiveData: any, settings: AppSettings) => {
+  try {
+    // Criar um elemento temporário para o preview
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Por favor, permita pop-ups para gerar a fatura.');
+      return;
+    }
+
+    // Formatar data
+    const formatDate = (dateString: string) => {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('pt-MZ');
+    };
+
+    // Calcular totais
+    let totalInflow = 0;
+    let totalOutflow = 0;
+    archiveData.transactions.forEach((tx: Transaction) => {
+      if (tx.type === 'Inflow') {
+        totalInflow += tx.amount;
+      } else {
+        totalOutflow += tx.amount;
+      }
+    });
+
+    const saldoFinal = totalOutflow - totalInflow;
+
+    // HTML para o preview
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="pt">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Fatura ${archiveData.invoiceNumber}</title>
+        <style>
+          body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+            background: #f8fafc;
+          }
+          .invoice-container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            padding: 30px;
+            position: relative;
+            overflow: hidden;
+          }
+          .header {
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+            position: relative;
+          }
+          .header::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            width: 100px;
+            height: 4px;
+            background: ${settings.uiConfig.primaryColor};
+            border-radius: 2px;
+          }
+          .invoice-title {
+            font-size: 24px;
+            font-weight: 800;
+            color: #1e293b;
+            margin-bottom: 5px;
+          }
+          .invoice-number {
+            font-size: 18px;
+            color: ${settings.uiConfig.primaryColor};
+            font-weight: 700;
+          }
+          .client-info {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+          }
+          .client-name {
+            font-size: 20px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 5px;
+          }
+          .client-phone {
+            color: #64748b;
+            font-size: 14px;
+          }
+          .transaction-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+          }
+          .transaction-table th {
+            background: #f1f5f9;
+            padding: 12px 15px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 700;
+            color: #475569;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          .transaction-table td {
+            padding: 15px;
+            border-bottom: 1px solid #e2e8f0;
+          }
+          .transaction-table tr:last-child td {
+            border-bottom: none;
+          }
+          .transaction-type {
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            display: inline-block;
+          }
+          .inflow { background: #dcfce7; color: #166534; }
+          .outflow { background: #fee2e2; color: #991b1b; }
+          .amount {
+            font-weight: 700;
+            font-size: 14px;
+          }
+          .total-section {
+            background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+            padding: 25px;
+            border-radius: 12px;
+            margin-top: 20px;
+          }
+          .total-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 16px;
+          }
+          .final-total {
+            font-size: 22px;
+            font-weight: 800;
+            color: ${settings.uiConfig.primaryColor};
+            border-top: 2px dashed #cbd5e1;
+            padding-top: 15px;
+            margin-top: 15px;
+          }
+          .footer {
+            text-align: center;
+            margin-top: 40px;
+            color: #94a3b8;
+            font-size: 12px;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 20px;
+          }
+          @media print {
+            body { background: white; }
+            .invoice-container { box-shadow: none; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="invoice-container">
+          <div class="header">
+            <div class="invoice-title">FATURA DE LIQUIDAÇÃO</div>
+            <div class="invoice-number">${archiveData.invoiceNumber}</div>
+            <div style="color: #64748b; margin-top: 10px;">
+              Data: ${formatDate(archiveData.dateClosed)}
+            </div>
+          </div>
+
+          <div class="client-info">
+            <div class="client-name">${client.name}</div>
+            <div class="client-phone">${client.phone}</div>
+          </div>
+
+          <table class="transaction-table">
+            <thead>
+              <tr>
+                <th>Data/Hora</th>
+                <th>Descrição</th>
+                <th>Método</th>
+                <th>Tipo</th>
+                <th style="text-align: right;">Valor (${settings.currency})</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${archiveData.transactions.map((tx: Transaction) => `
+                <tr>
+                  <td>
+                    <div>${formatDate(tx.date)}</div>
+                    <small style="color: #94a3b8;">${new Date(tx.date).toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' })}</small>
+                  </td>
+                  <td>${tx.description || tx.type}</td>
+                  <td>${tx.method}</td>
+                  <td>
+                    <span class="transaction-type ${tx.type.toLowerCase()}">${tx.type === 'Inflow' ? 'Entrada' : 'Saída'}</span>
+                  </td>
+                  <td style="text-align: right;">
+                    <span class="amount ${tx.type === 'Inflow' ? 'inflow' : 'outflow'}" style="color: ${tx.type === 'Inflow' ? '#166534' : '#991b1b'};">
+                      ${tx.type === 'Inflow' ? '+' : '-'}${tx.amount.toLocaleString()}
+                    </span>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="total-section">
+            <div class="total-row">
+              <span>Total de Saídas:</span>
+              <span style="font-weight: 700; color: #991b1b;">${totalOutflow.toLocaleString()} ${settings.currency}</span>
+            </div>
+            <div class="total-row">
+              <span>Total de Entradas:</span>
+              <span style="font-weight: 700; color: #166534;">${totalInflow.toLocaleString()} ${settings.currency}</span>
+            </div>
+            <div class="total-row final-total">
+              <span>SALDO FINAL:</span>
+              <span>${saldoFinal.toLocaleString()} ${settings.currency}</span>
+            </div>
+          </div>
+
+          <div class="footer">
+            <p>Super Agente • Fatura gerada automaticamente</p>
+            <p>Data de impressão: ${new Date().toLocaleDateString('pt-MZ')}</p>
+            <button class="no-print" onclick="window.print()" style="
+              background: ${settings.uiConfig.primaryColor};
+              color: white;
+              border: none;
+              padding: 12px 24px;
+              border-radius: 8px;
+              font-weight: 700;
+              cursor: pointer;
+              margin-top: 15px;
+            ">Imprimir/Guardar como PDF</button>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    printWindow.focus();
+
+  } catch (error) {
+    console.error('❌ Erro ao gerar fatura:', error);
+    alert('Erro ao gerar fatura. Tente novamente.');
   }
 };
 
@@ -169,7 +628,7 @@ const AddClientModal: React.FC<{
   );
 };
 
-// --- Modals ---
+// --- Modais ---
 
 const EditClientModal: React.FC<{ 
   isDark: boolean, 
@@ -240,6 +699,127 @@ const EditClientModal: React.FC<{
         <div className="flex gap-4">
           <button onClick={onClose} className={`flex-1 p-4 rounded-2xl font-bold ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-gray-500'}`}>{t.tx_cancel}</button>
           <button onClick={handleSave} className="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition-transform">{t.modal_save}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Modal para editar transação
+const EditTransactionModal: React.FC<{
+  isDark: boolean,
+  t: any,
+  transaction: Transaction,
+  onClose: () => void,
+  onSave: (updatedTx: Transaction) => void,
+  onSendConfirmation: (tx: Transaction) => void,
+  settings: AppSettings,
+  selectedClient: Client
+}> = ({ isDark, t, transaction, onClose, onSave, onSendConfirmation, settings, selectedClient }) => {
+  const [formData, setFormData] = useState({
+    amount: transaction.amount.toString(),
+    method: transaction.method,
+    date: transaction.date.split('T')[0],
+    desc: transaction.description || '',
+    type: transaction.type
+  });
+
+  const handleSave = () => {
+    const updatedTx: Transaction = {
+      ...transaction,
+      amount: parseFloat(formData.amount),
+      method: formData.method,
+      date: `${formData.date}T${new Date(transaction.date).toTimeString().split(' ')[0]}`,
+      description: formData.desc,
+      type: formData.type as 'Inflow' | 'Outflow'
+    };
+    
+    onSave(updatedTx);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm">
+      <div className={`${isDark ? 'bg-slate-900 border border-slate-800' : 'bg-white'} w-full max-w-sm rounded-[40px] p-8 shadow-2xl animate-in slide-in-from-bottom-10 duration-300`}>
+        <div className="flex justify-between items-center mb-6">
+          <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-blue-900'}`}>Editar Transação</h3>
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${formData.type === 'Inflow' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+            {formData.type === 'Inflow' ? <ArrowDownLeft /> : <ArrowUpRight />}
+          </div>
+        </div>
+
+        <div className="space-y-4 mb-8">
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase ml-2 mb-1 block">Tipo</label>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setFormData({...formData, type: 'Inflow'})}
+                className={`flex-1 p-3 rounded-2xl font-bold text-xs ${formData.type === 'Inflow' ? 'bg-emerald-600 text-white' : (isDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100')}`}
+              >
+                Entrada
+              </button>
+              <button 
+                onClick={() => setFormData({...formData, type: 'Outflow'})}
+                className={`flex-1 p-3 rounded-2xl font-bold text-xs ${formData.type === 'Outflow' ? 'bg-rose-600 text-white' : (isDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100')}`}
+              >
+                Saída
+              </button>
+            </div>
+          </div>
+          
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase ml-2 mb-1 block">Valor ({settings.currency})</label>
+            <input type="number" placeholder="0.00" className={`w-full p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 text-lg font-bold ${isDark ? 'bg-slate-800 text-white' : 'bg-gray-100 text-gray-900'}`} value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} />
+          </div>
+          
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase ml-2 mb-1 block">Método</label>
+            <div className="grid grid-cols-2 gap-2">
+              {settings.enabledAccounts.map(m => {
+                const isSelected = formData.method === m;
+                const accColor = settings.accountColors[m] || settings.uiConfig.primaryColor;
+                return (
+                  <button 
+                    key={m} 
+                    onClick={() => setFormData({ ...formData, method: m })} 
+                    className={`p-2 rounded-xl text-[10px] font-bold transition-all border ${isSelected ? 'text-white shadow-md' : (isDark ? 'bg-slate-800 text-slate-400 border-slate-700' : 'bg-gray-50 text-gray-500 border-gray-100')}`} 
+                    style={{ 
+                      backgroundColor: isSelected ? accColor : undefined, 
+                      borderColor: isSelected ? accColor : undefined 
+                    }}
+                  >
+                    {m}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase ml-2 mb-1 block">Data</label>
+            <input type="date" className={`w-full p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 text-sm ${isDark ? 'bg-slate-800 text-white' : 'bg-gray-100 text-gray-900'}`} value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} />
+          </div>
+          
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase ml-2 mb-1 block">Descrição</label>
+            <input type="text" placeholder="Ex: Pagamento" className={`w-full p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 text-sm ${isDark ? 'bg-slate-800 text-white' : 'bg-gray-100 text-gray-900'}`} value={formData.desc} onChange={e => setFormData({ ...formData, desc: e.target.value })} />
+          </div>
+        </div>
+        
+        <div className="space-y-3">
+          <div className="flex gap-3">
+            <button 
+              onClick={() => onSendConfirmation(transaction)}
+              className="flex-1 p-3 bg-blue-600 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2"
+            >
+              <Send className="w-4 h-4" />
+              Enviar Confirmação
+            </button>
+          </div>
+          
+          <div className="flex gap-3">
+            <button onClick={onClose} className={`flex-1 p-4 rounded-2xl font-bold ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-gray-500'}`}>Cancelar</button>
+            <button onClick={handleSave} className="flex-1 p-4 bg-emerald-600 text-white rounded-2xl font-bold shadow-lg shadow-emerald-600/20 active:scale-95 transition-transform">Salvar</button>
+          </div>
         </div>
       </div>
     </div>
@@ -328,12 +908,16 @@ const TransactionModal: React.FC<{
       return;
     }
 
+    // Adicionar hora atual à data
+    const now = new Date();
+    const dateWithTime = `${formData.date}T${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+
     const newTx: Transaction = { 
       id: Math.random().toString(36).substring(2, 9), 
       type: showTransactionModal.type, 
       amount: amt, 
       method: formData.method, 
-      date: formData.date, 
+      date: dateWithTime, // Usar data com hora
       dueDate: formData.date, 
       description: formData.desc, 
       settled: showTransactionModal.type === 'Inflow' 
@@ -518,6 +1102,10 @@ const DashboardView: React.FC<{
   
   const bgOpacity = settings.uiConfig.transparency;
 
+  // Criar gradiente baseado na cor primária
+  const primaryColor = settings.uiConfig.primaryColor;
+  const gradientId = `gradient-${primaryColor.replace('#', '')}`;
+
   return (
     <div className="p-6 pb-24 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <header className="flex justify-between items-start">
@@ -554,15 +1142,29 @@ const DashboardView: React.FC<{
         <h3 className={`font-extrabold text-[10px] md:text-sm uppercase tracking-widest mb-6 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t.dash_chart_title}</h3>
         <div className="h-44 w-full relative" style={{ minHeight: '176px' }}>
           <ResponsiveContainer width="100%" height="100%" key={`chart-${isDark}-${settings.language}-${settings.uiConfig.primaryColor}`}>
-            <LineChart data={chartData}>
+            <AreaChart data={chartData}>
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={primaryColor} stopOpacity={0.8}/>
+                  <stop offset="95%" stopColor={primaryColor} stopOpacity={0}/>
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "#334155" : "#e2e8f0"} />
               <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: isDark ? '#64748b' : '#94a3b8', fontSize: 10, fontWeight: 600}} dy={10} />
               <Tooltip 
                 contentStyle={{backgroundColor: isDark ? '#0f172a' : '#fff', borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)'}} 
                 itemStyle={{color: settings.uiConfig.primaryColor, fontWeight: '800', fontSize: '12px'}}
               />
-              <Line type="monotone" dataKey="total" stroke={settings.uiConfig.primaryColor} strokeWidth={3} dot={{r: 3, fill: settings.uiConfig.primaryColor, strokeWidth: 2, stroke: isDark ? '#0f172a' : '#fff'}} activeDot={{r: 6, strokeWidth: 0}} />
-            </LineChart>
+              <Area 
+                type="monotone" 
+                dataKey="total" 
+                stroke={primaryColor} 
+                strokeWidth={3}
+                fill={`url(#${gradientId})`}
+                dot={{r: 3, fill: primaryColor, strokeWidth: 2, stroke: isDark ? '#0f172a' : '#fff'}}
+                activeDot={{r: 6, strokeWidth: 0}}
+              />
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       </GlassCard>
@@ -617,30 +1219,30 @@ const DashboardView: React.FC<{
     </div>
   );
 };
+
 // --- Main App ---
 
 const App: React.FC = () => {
   // Estados iniciais
   const [view, setView] = useState<ViewState>('dashboard');
-  const [user, setUser] = useState<UserProfile>({ name: 'Agente', isFirstTime: false }); // REMOVIDO: phone e password
+  const [user, setUser] = useState<UserProfile>({ name: 'Agente', isFirstTime: false });
   const [clients, setClients] = useState<Client[]>([]);
   const [settings, setSettings] = useState<AppSettings>({
     ...INITIAL_SETTINGS,
-    // 3. Acrescentar conta mkesh as contas
     enabledAccounts: ['Super M-pesa', 'Super E-mola', 'M-pesa', 'E-mola', 'Mkesh', 'Cash'],
     accountColors: {
       ...INITIAL_SETTINGS.accountColors,
-      'Mkesh': '#06b6d4' // Adiciona cor padrão para Mkesh
-    }
+      'Mkesh': '#06b6d4'
+    },
+    // Novo: contas inativas
+    inactiveAccounts: [] as string[]
   });
   
   const [manualFloatAdjustments, setManualFloatAdjustments] = useState<Record<PaymentMethod, number>>({ 
     'Super M-pesa': 0, 'Super E-mola': 0, 'M-pesa': 0, 'E-mola': 0, 'Mkesh': 0, 'Cash': 0 
   });
   
-  // Contador global de faturas
   const [invoiceCounter, setInvoiceCounter] = useState<number>(1);
-  
   const [isLoading, setIsLoading] = useState(true);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -659,16 +1261,321 @@ const App: React.FC = () => {
   const [isAccountsBoxOpen, setIsAccountsBoxOpen] = useState(false);
   const [newAccName, setNewAccName] = useState('');
   const [editingAccountColor, setEditingAccountColor] = useState<string | null>(null);
+  const [editingAccountName, setEditingAccountName] = useState<string | null>(null);
+  
+  // Estados para edição de transações
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [showEditTransactionModal, setShowEditTransactionModal] = useState(false);
+  const [selectedTransactionForOptions, setSelectedTransactionForOptions] = useState<string | null>(null);
+  
+  // Estados Firebase
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseAuthUser | null>(null);
+  const [firebaseSyncEnabled, setFirebaseSyncEnabled] = useState<boolean>(false);
+  const [showFirebaseLogin, setShowFirebaseLogin] = useState<boolean>(false);
+  const [firebaseEmail, setFirebaseEmail] = useState<string>('');
+  const [firebasePassword, setFirebasePassword] = useState<string>('');
+  const [firebaseError, setFirebaseError] = useState<string>('');
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [showAutoSyncPrompt, setShowAutoSyncPrompt] = useState<boolean>(false);
+
+  // Referências para navegação por swipe
+  const touchStartX = useRef<number>(0);
+  const touchEndX = useRef<number>(0);
+  const mainRef = useRef<HTMLDivElement>(null);
+
+  // Navegação entre abas
+  const views: ViewState[] = ['dashboard', 'clients', 'settings'];
+  
+  const handleSwipe = (direction: 'left' | 'right') => {
+    if (['client-detail', 'client-archive'].includes(view)) return;
+    
+    const currentIndex = views.indexOf(view);
+    let newIndex = currentIndex;
+    
+    if (direction === 'right' && currentIndex > 0) {
+      newIndex = currentIndex - 1;
+    } else if (direction === 'left' && currentIndex < views.length - 1) {
+      newIndex = currentIndex + 1;
+    }
+    
+    if (newIndex !== currentIndex) {
+      setView(views[newIndex]);
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    touchEndX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = () => {
+    const distance = touchEndX.current - touchStartX.current;
+    const minSwipeDistance = 50;
+
+    if (Math.abs(distance) < minSwipeDistance) return;
+
+    if (distance > 0) {
+      handleSwipe('right');
+    } else {
+      handleSwipe('left');
+    }
+  };
+
+  // Monitorar autenticação Firebase
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setFirebaseUser(user);
+        
+        // Carregar dados do Firebase para este usuário
+        loadFirebaseData(user);
+      } else {
+        setFirebaseUser(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Verificar se há email salvo para sincronização automática
+  useEffect(() => {
+    const checkAutoSync = async () => {
+      const savedEmail = localStorage.getItem('auto_sync_email');
+      if (savedEmail && !firebaseUser) {
+        setShowAutoSyncPrompt(true);
+        setFirebaseEmail(savedEmail);
+      }
+    };
+    
+    checkAutoSync();
+  }, [firebaseUser]);
+
+  // Carregar dados do Firebase
+  const loadFirebaseData = async (user: FirebaseAuthUser) => {
+    try {
+      setIsSyncing(true);
+      const firebaseData = await loadDataFromFirebase(user);
+      
+      if (firebaseData) {
+        // Mesclar dados do Firebase com dados locais
+        setUser(firebaseData.user || { name: 'Agente', isFirstTime: false });
+        setClients(firebaseData.clients || []);
+        setSettings(firebaseData.settings || INITIAL_SETTINGS);
+        setManualFloatAdjustments(firebaseData.manualFloatAdjustments || {});
+        setInvoiceCounter(firebaseData.invoiceCounter || 1);
+        
+        // Salvar também localmente
+        await Promise.all([
+          localforage.setItem('agent_user', firebaseData.user),
+          localforage.setItem('agent_clients', firebaseData.clients || []),
+          localforage.setItem('agent_settings', firebaseData.settings || INITIAL_SETTINGS),
+          localforage.setItem('agent_float', firebaseData.manualFloatAdjustments || {}),
+          localforage.setItem('agent_invoice_counter', firebaseData.invoiceCounter || 1)
+        ]);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao carregar dados do Firebase:', error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Sincronizar dados com Firebase
+  const syncWithFirebase = async () => {
+    if (!firebaseUser) {
+      alert('Por favor, faça login primeiro para sincronizar.');
+      return;
+    }
+
+    try {
+      setIsSyncing(true);
+      const success = await syncDataToFirebase(
+        firebaseUser,
+        user,
+        clients,
+        settings,
+        manualFloatAdjustments,
+        invoiceCounter
+      );
+
+      if (success) {
+        alert('✅ Dados sincronizados com sucesso!');
+      } else {
+        alert('❌ Erro ao sincronizar dados.');
+      }
+    } catch (error) {
+      console.error('❌ Erro ao sincronizar:', error);
+      alert('❌ Erro ao sincronizar dados.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Login com Firebase usando Google
+  const handleGoogleLogin = async () => {
+    try {
+      setIsSyncing(true);
+      setFirebaseError('');
+
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+      
+      // Salvar email para sincronização automática
+      localStorage.setItem('auto_sync_email', user.email || '');
+      
+      // Sincronizar dados locais com a conta
+      await syncDataToFirebase(
+        user,
+        user,
+        clients,
+        settings,
+        manualFloatAdjustments,
+        invoiceCounter
+      );
+      
+      alert('✅ Login Google realizado com sucesso! Seus dados foram sincronizados.');
+      
+    } catch (error: any) {
+      console.error('❌ Erro no login Google:', error);
+      setFirebaseError(`Erro: ${error.message}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Login automático com email salvo
+  const handleAutoSync = async () => {
+    const savedEmail = localStorage.getItem('auto_sync_email');
+    if (!savedEmail) return;
+
+    // Tentar login automático com Google
+    try {
+      setIsSyncing(true);
+      const result = await signInWithPopup(auth, googleProvider);
+      setShowAutoSyncPrompt(false);
+    } catch (error) {
+      setShowFirebaseLogin(true);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Login com Firebase
+  const handleFirebaseLogin = async () => {
+    if (!firebaseEmail || !firebasePassword) {
+      setFirebaseError('Por favor, preencha email e senha.');
+      return;
+    }
+
+    try {
+      setIsSyncing(true);
+      setFirebaseError('');
+
+      // Tentar login
+      const userCredential = await signInWithEmailAndPassword(auth, firebaseEmail, firebasePassword);
+      
+      // Salvar email para sincronização automática
+      localStorage.setItem('auto_sync_email', firebaseEmail);
+      
+      // Fechar modal de login
+      setShowFirebaseLogin(false);
+      setFirebaseEmail('');
+      setFirebasePassword('');
+      
+      // Sincronizar dados
+      await syncDataToFirebase(
+        userCredential.user,
+        user,
+        clients,
+        settings,
+        manualFloatAdjustments,
+        invoiceCounter
+      );
+      
+      alert('✅ Login realizado com sucesso! Os dados foram sincronizados.');
+      
+    } catch (error: any) {
+      console.error('❌ Erro no login:', error);
+      
+      if (error.code === 'auth/user-not-found') {
+        // Se usuário não existe, tentar criar conta
+        try {
+          const userCredential = await createUserWithEmailAndPassword(auth, firebaseEmail, firebasePassword);
+          
+          // Salvar email para sincronização automática
+          localStorage.setItem('auto_sync_email', firebaseEmail);
+          
+          // Sincronizar dados locais com a nova conta
+          await syncDataToFirebase(
+            userCredential.user,
+            user,
+            clients,
+            settings,
+            manualFloatAdjustments,
+            invoiceCounter
+          );
+          
+          setShowFirebaseLogin(false);
+          setFirebaseEmail('');
+          setFirebasePassword('');
+          
+          alert('✅ Nova conta criada! Seus dados foram sincronizados.');
+        } catch (createError: any) {
+          setFirebaseError(`Erro ao criar conta: ${createError.message}`);
+        }
+      } else {
+        setFirebaseError(`Erro: ${error.message}`);
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Logout do Firebase
+  const handleFirebaseLogout = async () => {
+    try {
+      await signOut(auth);
+      setFirebaseUser(null);
+      localStorage.removeItem('auto_sync_email');
+      alert('✅ Logout realizado com sucesso.');
+    } catch (error) {
+      console.error('❌ Erro no logout:', error);
+      alert('❌ Erro ao fazer logout.');
+    }
+  };
+
+  // Função para exportar dados locais
+  const handleExportLocalData = () => {
+    exportLocalData(user, clients, settings, manualFloatAdjustments, invoiceCounter);
+  };
+
+  // Função para importar dados locais
+  const handleImportLocalData = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    importLocalData(
+      file,
+      setUser,
+      setClients,
+      setSettings,
+      setManualFloatAdjustments,
+      setInvoiceCounter
+    );
+    
+    // Limpar o input para permitir reimportar o mesmo arquivo
+    event.target.value = '';
+  };
 
   // 4. SALVAR DADOS AUTOMATICAMENTE quando houver alterações
   useEffect(() => {
     const saveAllData = async () => {
-      if (isLoading) return; // Não salvar durante o carregamento inicial
+      if (isLoading) return;
       
       try {
-        console.log('💾 Salvando dados automaticamente...');
-        
-        // Salvar tudo no localForage
         await Promise.all([
           localforage.setItem('agent_user', user),
           localforage.setItem('agent_clients', clients),
@@ -677,40 +1584,33 @@ const App: React.FC = () => {
           localforage.setItem('agent_invoice_counter', invoiceCounter)
         ]);
         
-        // Criar backup automático
         createAutomaticBackup(user, clients, settings, manualFloatAdjustments, invoiceCounter);
         
-        console.log('✅ Dados salvos com sucesso!');
+        // Se estiver logado no Firebase, sincronizar
+        if (firebaseUser && firebaseSyncEnabled) {
+          await syncDataToFirebase(firebaseUser, user, clients, settings, manualFloatAdjustments, invoiceCounter);
+        }
       } catch (error) {
         console.error('❌ Erro ao salvar dados:', error);
       }
     };
     
-    // Salvar dados sempre que houver alterações
     saveAllData();
-  }, [user, clients, settings, manualFloatAdjustments, invoiceCounter, isLoading]);
+  }, [user, clients, settings, manualFloatAdjustments, invoiceCounter, isLoading, firebaseUser, firebaseSyncEnabled]);
 
   // Carregar dados salvos
   useEffect(() => {
     const loadSavedData = async () => {
       try {
-        console.log('🔄 Carregando dados salvos...');
-        
-        // ⭐⭐ PRIMEIRO: Solicitar armazenamento PERSISTENTE ⭐⭐
         await requestPersistentStorage();
         
-        // ⭐⭐ SEGUNDO: Tentar carregar do backup automático (localStorage) ⭐⭐
         const backupSalvo = localStorage.getItem('super_agente_backup');
         
         if (backupSalvo) {
           try {
             const backup = JSON.parse(backupSalvo);
             
-            // Verificar se é um backup válido do nosso app
             if (backup.conteudo && backup.conteudo.user) {
-              console.log('✅ Backup encontrado, restaurando...');
-              
-              // Restaurar dados do backup
               const { 
                 user: backupUser, 
                 clients: backupClients, 
@@ -721,17 +1621,14 @@ const App: React.FC = () => {
               
               if (backupUser && backupUser.name) {
                 setUser(backupUser);
-                console.log('👤 Usuário restaurado do backup:', backupUser.name);
               }
               
               if (backupClients && Array.isArray(backupClients)) {
                 setClients(backupClients);
-                console.log('👥 Clientes restaurados do backup:', backupClients.length);
               }
               
               if (backupSettings) {
                 setSettings(backupSettings);
-                console.log('⚙️ Configurações restauradas do backup');
               }
               
               if (backupFloat) {
@@ -739,25 +1636,20 @@ const App: React.FC = () => {
                   ...prev,
                   ...backupFloat
                 }));
-                console.log('💰 Float restaurado do backup');
               }
               
               if (backupInvoiceCounter) {
                 setInvoiceCounter(backupInvoiceCounter);
-                console.log('🧾 Contador de faturas restaurado:', backupInvoiceCounter);
               }
               
               setIsLoading(false);
               return;
             }
           } catch (erroBackup) {
-            console.warn('⚠️ Backup corrompido, ignorando...', erroBackup);
+            // Backup corrompido, ignorar
           }
         }
         
-        console.log('⚠️ Nenhum backup encontrado, carregando do sistema antigo...');
-        
-        // Carregar do localForage (sistema antigo)
         const [savedUser, savedClients, savedSettings, savedFloat, savedInvoiceCounter] = await Promise.all([
           localforage.getItem<UserProfile>('agent_user'),
           localforage.getItem<Client[]>('agent_clients'),
@@ -766,39 +1658,26 @@ const App: React.FC = () => {
           localforage.getItem<number>('agent_invoice_counter')
         ]);
 
-        console.log('📥 Dados carregados do localForage:', {
-          temUsuario: !!savedUser,
-          qtdClientes: savedClients?.length || 0,
-          invoiceCounter: savedInvoiceCounter || 1
-        });
-
-        // Restaurar dados se existirem no localForage
         if (savedUser && savedUser.name) {
-          console.log('✅ Restaurando usuário do localForage:', savedUser.name);
           setUser(savedUser);
         }
         
         if (savedClients && savedClients.length > 0) {
-          console.log('✅ Restaurando clientes do localForage:', savedClients.length);
           setClients(savedClients);
         }
         
         if (savedSettings) {
-          console.log('✅ Restaurando configurações do localForage');
           setSettings(savedSettings);
         }
         
         if (savedFloat) {
-          console.log('✅ Restaurando ajustes de float do localForage');
           setManualFloatAdjustments(prev => ({
             ...prev,
             ...savedFloat
           }));
         }
         
-        // Restaurar contador de faturas
         if (savedInvoiceCounter && savedInvoiceCounter > 0) {
-          console.log('✅ Restaurando contador de faturas do localForage:', savedInvoiceCounter);
           setInvoiceCounter(savedInvoiceCounter);
         }
         
@@ -811,125 +1690,6 @@ const App: React.FC = () => {
     
     loadSavedData();
   }, []);
-
-  // 1. Exportar Backup para arquivo JSON
-  const exportBackup = () => {
-    try {
-      const backupData = {
-        app: "Super Agente",
-        versao: "2.0",
-        dataBackup: new Date().toLocaleString('pt-MZ'),
-        usuario: user.name || "Agente",
-        conteudo: {
-          user,
-          clients,
-          settings,
-          manualFloatAdjustments,
-          invoiceCounter
-        }
-      };
-
-      // Criar arquivo JSON
-      const jsonString = JSON.stringify(backupData, null, 2);
-      const blob = new Blob([jsonString], { type: 'application/json' });
-      
-      // Criar link para download
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'super_agente_backup.json'; // 6. Sempre mesmo nome
-      
-      // Baixar arquivo
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      // Limpar
-      window.URL.revokeObjectURL(url);
-      
-      alert(`✅ Backup exportado com sucesso!\nArquivo: ${link.download}`);
-      
-    } catch (erro) {
-      console.error('❌ Erro ao exportar backup:', erro);
-      alert('❌ Erro ao criar backup!');
-    }
-  };
-
-  // 2. Importar Backup de arquivo JSON
-  const importBackup = (evento: any) => {
-    const arquivo = evento.target.files?.[0];
-    if (!arquivo) return;
-
-    const leitor = new FileReader();
-    
-    leitor.onload = (e) => {
-      try {
-        const conteudo = e.target?.result;
-        const dados = JSON.parse(conteudo as string);
-        
-        // Verificar se é um backup nosso
-        if (!dados.conteudo || !dados.conteudo.user) {
-          alert('❌ Este não é um backup válido do Super Agente!');
-          return;
-        }
-        
-        const confirmacao = window.confirm(
-          `Deseja restaurar backup de ${dados.dataBackup || 'data desconhecida'}?\n` +
-          `Usuário: ${dados.usuario || 'Desconhecido'}\n` +
-          `Clientes: ${dados.conteudo.clients?.length || 0}\n\n` +
-          `⚠️  ATENÇÃO: Todos os dados atuais serão substituídos!`
-        );
-        
-        if (confirmacao) {
-          // Restaurar dados
-          setUser(dados.conteudo.user);
-          setClients(dados.conteudo.clients || []);
-          setSettings(dados.conteudo.settings || INITIAL_SETTINGS);
-          setManualFloatAdjustments(dados.conteudo.manualFloatAdjustments || {});
-          setInvoiceCounter(dados.conteudo.invoiceCounter || 1);
-          
-          // Salvar os dados restaurados
-          Promise.all([
-            localforage.setItem('agent_user', dados.conteudo.user),
-            localforage.setItem('agent_clients', dados.conteudo.clients || []),
-            localforage.setItem('agent_settings', dados.conteudo.settings || INITIAL_SETTINGS),
-            localforage.setItem('agent_float', dados.conteudo.manualFloatAdjustments || {}),
-            localforage.setItem('agent_invoice_counter', dados.conteudo.invoiceCounter || 1)
-          ]).then(() => {
-            // 5. Sobrescrever o backup local
-            localStorage.setItem('super_agente_backup', JSON.stringify(dados));
-            
-            alert(`✅ Backup restaurado com sucesso!\n` +
-                  `Usuário: ${dados.conteudo.user.name}\n` +
-                  `Clientes: ${dados.conteudo.clients?.length || 0}\n` +
-                  `Última fatura: FAT-${(dados.conteudo.invoiceCounter || 1).toString().padStart(4, '0')}\n\n` +
-                  `A página será recarregada...`);
-            
-            // Recarregar após 1 segundo
-            setTimeout(() => {
-              window.location.reload();
-            }, 1000);
-          }).catch(error => {
-            console.error('❌ Erro ao salvar dados restaurados:', error);
-            alert('❌ Erro ao salvar dados restaurados!');
-          });
-        }
-        
-      } catch (erro) {
-        console.error('❌ Erro ao importar backup:', erro);
-        alert('❌ Erro ao ler arquivo! Verifique se é um backup válido.');
-      }
-    };
-    
-    leitor.onerror = () => {
-      alert('❌ Erro ao ler arquivo!');
-    };
-    
-    leitor.readAsText(arquivo);
-    
-    // Limpar input
-    evento.target.value = '';
-  };
 
   // Função wrapper para criar backup automático
   const handleCreateAutomaticBackup = () => {
@@ -945,13 +1705,9 @@ const App: React.FC = () => {
       return;
     }
 
-    // Gerar número de fatura único
     const invoiceNumber = `FAT-${invoiceCounter.toString().padStart(4, '0')}`;
-    
-    // Incrementar contador
     const nextInvoiceCounter = invoiceCounter + 1;
     
-    // Atualizar cliente com fatura
     const updatedClients = clients.map(c => 
       c.id === client.id 
         ? {
@@ -969,16 +1725,19 @@ const App: React.FC = () => {
     setClients(updatedClients);
     setInvoiceCounter(nextInvoiceCounter);
     
-    // Salvar dados
     Promise.all([
       localforage.setItem('agent_clients', updatedClients),
       localforage.setItem('agent_invoice_counter', nextInvoiceCounter)
     ]).catch(console.error);
     
-    // Criar backup automático
     handleCreateAutomaticBackup();
     
     alert(`✅ Conta arquivada com sucesso!\nNúmero da fatura: ${invoiceNumber}`);
+  };
+
+  // Função para visualizar fatura em PDF
+  const handleViewInvoice = (client: Client, archiveData: any) => {
+    generateInvoicePDF(client, archiveData, settings);
   };
 
   const selectedClient = clients.find(c => c.id === selectedClientId);
@@ -1020,10 +1779,143 @@ const App: React.FC = () => {
     document.documentElement.classList.toggle('dark', isDark);
   }, [isDark]);
 
+  // Função para formatar hora nas transações
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  // Função para alternar estado da conta (ativa/inativa)
+  const toggleAccountStatus = (accountName: string) => {
+    const isCurrentlyActive = settings.enabledAccounts.includes(accountName);
+    const isCurrentlyInactive = settings.inactiveAccounts?.includes(accountName) || false;
+    
+    let newEnabledAccounts = [...settings.enabledAccounts];
+    let newInactiveAccounts = [...(settings.inactiveAccounts || [])];
+    
+    if (isCurrentlyActive) {
+      // Mover para inativas
+      newEnabledAccounts = newEnabledAccounts.filter(acc => acc !== accountName);
+      newInactiveAccounts.push(accountName);
+    } else if (isCurrentlyInactive) {
+      // Mover para ativas
+      newInactiveAccounts = newInactiveAccounts.filter(acc => acc !== accountName);
+      newEnabledAccounts.push(accountName);
+    } else {
+      // Conta nova? Adicionar às ativas por padrão
+      newEnabledAccounts.push(accountName);
+    }
+    
+    setSettings({
+      ...settings,
+      enabledAccounts: newEnabledAccounts,
+      inactiveAccounts: newInactiveAccounts
+    });
+  };
+
+  // Função para editar nome da conta
+  const handleEditAccountName = (oldName: string, newName: string) => {
+    if (!newName.trim()) return;
+    
+    const trimmedName = newName.trim();
+    
+    // Verificar se o novo nome já existe
+    if (settings.enabledAccounts.includes(trimmedName) || settings.inactiveAccounts?.includes(trimmedName)) {
+      alert("Já existe uma conta com este nome.");
+      return;
+    }
+    
+    // Atualizar enabledAccounts
+    const newEnabledAccounts = settings.enabledAccounts.map(acc => 
+      acc === oldName ? trimmedName : acc
+    );
+    
+    // Atualizar inactiveAccounts
+    const newInactiveAccounts = (settings.inactiveAccounts || []).map(acc => 
+      acc === oldName ? trimmedName : acc
+    );
+    
+    // Atualizar accountColors
+    const oldColor = settings.accountColors[oldName];
+    const newAccountColors = { ...settings.accountColors };
+    
+    if (oldColor) {
+      delete newAccountColors[oldName];
+      newAccountColors[trimmedName] = oldColor;
+    }
+    
+    setSettings({
+      ...settings,
+      enabledAccounts: newEnabledAccounts,
+      inactiveAccounts: newInactiveAccounts,
+      accountColors: newAccountColors
+    });
+    
+    setEditingAccountName(null);
+  };
+
+  // Função para editar transação
+  const handleEditTransaction = (updatedTx: Transaction) => {
+    if (!selectedClient) return;
+    
+    const updatedClients = clients.map(client => {
+      if (client.id === selectedClient.id) {
+        const updatedActiveAccount = client.activeAccount.map(tx => 
+          tx.id === updatedTx.id ? updatedTx : tx
+        );
+        
+        const updatedArchive = client.archive.map(archive => ({
+          ...archive,
+          transactions: archive.transactions.map(tx => 
+            tx.id === updatedTx.id ? updatedTx : tx
+          )
+        }));
+        
+        return {
+          ...client,
+          activeAccount: updatedActiveAccount,
+          archive: updatedArchive
+        };
+      }
+      return client;
+    });
+    
+    setClients(updatedClients);
+    localforage.setItem('agent_clients', updatedClients).catch(console.error);
+    handleCreateAutomaticBackup();
+    setShowEditTransactionModal(false);
+    setEditingTransaction(null);
+  };
+
+  // Função para enviar confirmação de transação
+  const handleSendTransactionConfirmation = (tx: Transaction) => {
+    if (!selectedClient) return;
+    
+    const text = settings.smsTemplates.confirmation
+      .replace('{amount}', tx.amount.toString())
+      .replace('{currency}', settings.currency)
+      .replace('{desc}', tx.description || tx.type);
+    
+    window.location.href = `sms:${selectedClient.phone}?body=${encodeURIComponent(text)}`;
+  };
+
+  // Função para mostrar opções da transação
+  const handleTransactionClick = (tx: Transaction, clientId: string) => {
+    setSelectedTransactionForOptions(prev => prev === tx.id ? null : tx.id);
+  };
+
   return (
     <div className={`fixed inset-0 flex items-center justify-center p-0 md:p-4 lg:p-8 transition-colors duration-500 ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
-      <div className={`w-full h-full max-w-md md:max-w-lg md:h-[90vh] md:max-h-[1000px] md:rounded-[3.5rem] app-shadow flex flex-col transition-all overflow-hidden relative ${isDark ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-900'} border border-white/5`}>
-        <main className="flex-1 overflow-y-auto relative no-scrollbar">
+      <div 
+        className={`w-full h-full max-w-md md:max-w-lg md:h-[90vh] md:max-h-[1000px] md:rounded-[3.5rem] app-shadow flex flex-col transition-all overflow-hidden relative ${isDark ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-900'} border border-white/5`}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        <main 
+          className="flex-1 overflow-y-auto relative no-scrollbar"
+          ref={mainRef}
+        >
           {view === 'dashboard' && <DashboardView 
             isDark={isDark} 
             t={t} 
@@ -1130,21 +2022,71 @@ const App: React.FC = () => {
                    ) : (
                      <div className="space-y-3">
                         {selectedClient.activeAccount.map(tx => (
-                          <div key={tx.id} className={`p-4 rounded-[2rem] border shadow-sm flex items-center justify-between transition-all ${isDark ? 'bg-slate-800/40 border-slate-700/50 hover:bg-slate-800/60' : 'bg-white border-slate-100 hover:bg-slate-50'}`}>
+                          <div 
+                            key={tx.id} 
+                            className={`p-4 rounded-[2rem] border shadow-sm flex items-center justify-between transition-all relative ${isDark ? 'bg-slate-800/40 border-slate-700/50 hover:bg-slate-800/60' : 'bg-white border-slate-100 hover:bg-slate-50'}`}
+                            onClick={() => handleTransactionClick(tx, selectedClient.id)}
+                          >
                              <div className="flex items-center gap-3 md:gap-4 overflow-hidden">
                                <div className={`w-10 h-10 md:w-12 md:h-12 flex-shrink-0 rounded-2xl flex items-center justify-center ${tx.type === 'Inflow' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                                 {tx.type === 'Inflow' ? <ArrowDownLeft className="w-5 h-5 md:w-6 md:h-6" /> : <ArrowUpRight className="w-5 h-5 md:w-6 md:h-6" />}
+                                 {tx.type === 'Inflow' ? <ArrowDownLeft className="w-5 h-5 md:w-6 md:h-6" /> : <ArrowUpRight className="w-5 h-5 md:w-6 md/h-6" />}
                                </div>
                                <div className="overflow-hidden">
                                  <p className={`font-black text-xs md:text-sm uppercase truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{tx.description || tx.type}</p>
-                                 <p className="text-[9px] md:text-[10px] text-slate-400 font-bold uppercase tracking-tighter truncate">{tx.method} • {new Date(tx.date).toLocaleDateString()}</p>
+                                 <div className="flex items-center gap-2">
+                                   <p className="text-[9px] md:text-[10px] text-slate-400 font-bold uppercase tracking-tighter truncate">{tx.method}</p>
+                                   <span className="text-slate-300">•</span>
+                                   <p className="text-[9px] md:text-[10px] text-slate-400 font-bold tracking-tighter truncate">
+                                     {new Date(tx.date).toLocaleDateString()} • {formatTime(tx.date)}
+                                   </p>
+                                 </div>
                                </div>
                              </div>
-                             <div className="text-right flex-shrink-0 ml-2">
+                             <div className="text-right flex-shrink-0 ml-2 flex items-center gap-2">
                                <p className={`font-black text-sm md:text-base ${tx.type === 'Inflow' ? 'text-emerald-500' : 'text-rose-500'}`}>
                                  {tx.type === 'Inflow' ? '+' : '-'}{tx.amount.toLocaleString()}
                                </p>
+                               <button 
+                                 className="p-1 hover:bg-slate-200/20 rounded-lg transition-colors"
+                                 onClick={(e) => {
+                                   e.stopPropagation();
+                                   setSelectedTransactionForOptions(prev => prev === tx.id ? null : tx.id);
+                                 }}
+                               >
+                                 <MoreVertical className="w-4 h-4 text-slate-400" />
+                               </button>
                              </div>
+                             
+                             {/* Menu de opções da transação */}
+                             {selectedTransactionForOptions === tx.id && (
+                               <div className={`absolute right-4 top-16 z-10 rounded-2xl shadow-2xl animate-in fade-in slide-in-from-top-4 ${isDark ? 'bg-slate-800 border border-slate-700' : 'bg-white border border-slate-100'}`}>
+                                 <div className="p-2 space-y-1">
+                                   <button 
+                                     onClick={(e) => {
+                                       e.stopPropagation();
+                                       setEditingTransaction(tx);
+                                       setShowEditTransactionModal(true);
+                                       setSelectedTransactionForOptions(null);
+                                     }}
+                                     className="w-full p-3 rounded-xl text-left flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                                   >
+                                     <Edit2 className="w-4 h-4" />
+                                     <span className="text-sm font-bold">Editar</span>
+                                   </button>
+                                   <button 
+                                     onClick={(e) => {
+                                       e.stopPropagation();
+                                       handleSendTransactionConfirmation(tx);
+                                       setSelectedTransactionForOptions(null);
+                                     }}
+                                     className="w-full p-3 rounded-xl text-left flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                                   >
+                                     <Send className="w-4 h-4" />
+                                     <span className="text-sm font-bold">Enviar Confirmação</span>
+                                   </button>
+                                 </div>
+                               </div>
+                             )}
                           </div>
                         ))}
                      </div>
@@ -1185,25 +2127,22 @@ const App: React.FC = () => {
                             <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                               {t.archive_date}: {new Date(archive.dateClosed).toLocaleDateString()}
                             </p>
-                            {/* Mostrar número da fatura */}
+                            {/* Mostrar número da fatura com botão de impressão */}
                             {archive.invoiceNumber && (
-                              <p className={`text-[9px] font-bold mt-1 flex items-center gap-1 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                              <p className={`text-[9px] font-bold mt-1 flex items-center gap-2 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                                 <FileText className="w-3 h-3" />
                                 Fatura: <span className="text-blue-500 font-black">{archive.invoiceNumber}</span>
                               </p>
                             )}
                           </div>
                         </div>
-                        {/* Botão para copiar número da fatura */}
+                        {/* Botão para imprimir/preview da fatura */}
                         {archive.invoiceNumber && (
                           <button 
-                            onClick={() => {
-                              navigator.clipboard.writeText(archive.invoiceNumber);
-                              alert(`Número da fatura copiado: ${archive.invoiceNumber}`);
-                            }}
-                            className="text-[8px] px-2 py-1 bg-blue-500/10 text-blue-500 rounded-lg font-bold flex items-center gap-1 hover:bg-blue-500/20 transition-colors"
+                            onClick={() => handleViewInvoice(selectedClient, archive)}
+                            className="text-[8px] px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-bold flex items-center gap-1 transition-colors active:scale-95"
                           >
-                            <Copy className="w-3 h-3" /> Copiar
+                            <Printer className="w-3 h-3" /> Visualizar
                           </button>
                         )}
                       </div>
@@ -1216,7 +2155,13 @@ const App: React.FC = () => {
                                </div>
                                <div>
                                  <p className={`font-black text-xs uppercase ${isDark ? 'text-white' : 'text-slate-900'}`}>{tx.description || tx.type}</p>
-                                 <p className="text-[9px] text-slate-400 font-bold uppercase">{tx.method} • {new Date(tx.date).toLocaleDateString()}</p>
+                                 <div className="flex items-center gap-2">
+                                   <p className="text-[9px] text-slate-400 font-bold uppercase">{tx.method}</p>
+                                   <span className="text-slate-300">•</span>
+                                   <p className="text-[9px] text-slate-400 font-bold">
+                                     {new Date(tx.date).toLocaleDateString()} • {formatTime(tx.date)}
+                                   </p>
+                                 </div>
                                </div>
                              </div>
                              <p className={`font-black text-sm ${tx.type === 'Inflow' ? 'text-emerald-500' : 'text-rose-500'}`}>
@@ -1236,56 +2181,134 @@ const App: React.FC = () => {
             <div className="p-6 pb-24 space-y-10 animate-in fade-in duration-500">
                <h2 className={`text-2xl md:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{t.settings_title}</h2>
 
-               {/* SEÇÃO DE BACKUP LOCAL - NOVO SISTEMA */}
-              <section className="space-y-4">
-                <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Backup e Restauração</h3>
-                <div className={`p-5 md:p-6 rounded-[2.5rem] shadow-sm border space-y-4 ${isDark ? 'bg-slate-800/40 border-slate-700/50' : 'bg-white border-slate-100'}`}>
-                  
-                  {/* BOTÃO 1: EXPORTAR BACKUP */}
-                  <button 
-                    onClick={() => exportBackup()}
-                    className="w-full flex items-center justify-between p-4 rounded-2xl bg-blue-600/10 text-blue-600 font-bold active:scale-95 transition-all hover:bg-blue-600/20"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-blue-600/20 rounded-xl flex items-center justify-center">
-                        <ArrowUpRight className="w-4 h-4" />
-                      </div>
-                      <div className="text-left">
-                        <span className="text-sm">Exportar Backup</span>
-                        <p className="text-[10px] opacity-70">Salvar arquivo .json localmente</p>
-                      </div>
-                    </div>
-                    <Printer className="w-5 h-5" />
-                  </button>
+               {/* Seção de Sincronização Firebase */}
+               <section className="space-y-4">
+                  <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Sincronização na Nuvem</h3>
+                  <div className={`p-5 md:p-6 rounded-[2.5rem] shadow-sm border space-y-6 ${isDark ? 'bg-slate-800/40 border-slate-700/50' : 'bg-white border-slate-100'}`}>
+                    
+                    {firebaseUser ? (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className={`w-10 h-10 md:w-12 md:h-12 rounded-2xl flex items-center justify-center ${firebaseSyncEnabled ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                              <Cloud className="w-5 h-5 md:w-6 md:h-6" />
+                            </div>
+                            <div>
+                              <p className="font-black text-base md:text-lg">Sincronização Ativa</p>
+                              <p className="text-[10px] md:text-xs font-bold text-slate-400 tracking-tight">
+                                {firebaseUser.email}
+                              </p>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => setFirebaseSyncEnabled(!firebaseSyncEnabled)}
+                            className={`w-12 h-7 md:w-14 md:h-8 rounded-full transition-all relative ${firebaseSyncEnabled ? 'bg-emerald-600' : 'bg-slate-200'}`}
+                          >
+                            <div className={`absolute top-1 w-5 h-5 md:w-6 md:h-6 bg-white rounded-full transition-all shadow-md ${firebaseSyncEnabled ? 'left-6 md:left-7' : 'left-1'}`} />
+                          </button>
+                        </div>
 
-                  {/* BOTÃO 2: IMPORTAR BACKUP */}
-                  <div className="relative">
-                    <input 
-                      type="file" 
-                      accept=".json" 
-                      onChange={(e) => importBackup(e)}
-                      className="absolute inset-0 opacity-0 cursor-pointer z-10" 
-                      id="backup-file-input"
-                    />
-                    <button 
-                      onClick={() => document.getElementById('backup-file-input')?.click()}
-                      className="w-full flex items-center justify-between p-4 rounded-2xl bg-emerald-600/10 text-emerald-600 font-bold active:scale-95 transition-all hover:bg-emerald-600/20"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-emerald-600/20 rounded-xl flex items-center justify-center">
-                          <ArrowDownLeft className="w-4 h-4" />
+                        {firebaseSyncEnabled && (
+                          <div className="space-y-4 animate-in fade-in slide-in-from-top-4">
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={syncWithFirebase}
+                                disabled={isSyncing}
+                                className="flex-1 p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {isSyncing ? (
+                                  <>
+                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                    Sincronizando...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Cloud className="w-4 h-4" />
+                                    Sincronizar Agora
+                                  </>
+                                )}
+                              </button>
+                              <button 
+                                onClick={handleFirebaseLogout}
+                                className="flex-1 p-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2"
+                              >
+                                <LogOut className="w-4 h-4" />
+                                Sair
+                              </button>
+                            </div>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 text-center">
+                              {firebaseSyncEnabled 
+                                ? "Seus dados serão automaticamente sincronizados com a nuvem."
+                                : "A sincronização está desativada. Seus dados serão salvos apenas localmente."}
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center text-slate-500">
+                              <CloudOff className="w-5 h-5 md:w-6 md:h-6" />
+                            </div>
+                            <div>
+                              <p className="font-black text-base md:text-lg">Sincronização na Nuvem</p>
+                              <p className="text-[10px] md:text-xs font-bold text-slate-400 tracking-tight">
+                                Proteja seus dados com backup automático
+                              </p>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => setShowFirebaseLogin(true)}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-xs hover:bg-blue-700 transition-colors"
+                          >
+                            Ativar
+                          </button>
                         </div>
-                        <div className="text-left">
-                          <span className="text-sm">Importar Backup</span>
-                          <p className="text-[10px] opacity-70">Restaurar de arquivo .json</p>
-                        </div>
-                      </div>
-                      <Archive className="w-5 h-5" />
-                    </button>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                          • Backup automático na nuvem<br/>
+                          • Acesse seus dados de qualquer dispositivo<br/>
+                          • Proteção contra perda de dados
+                        </p>
+                      </>
+                    )}
                   </div>
+               </section>
 
-                </div>
-              </section>
+               {/* NOVA SEÇÃO: Backup/Restauração Local */}
+               <section className="space-y-4">
+                  <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Backup & Restauração Local</h3>
+                  <div className={`p-5 md:p-6 rounded-[2.5rem] shadow-sm border space-y-4 ${isDark ? 'bg-slate-800/40 border-slate-700/50' : 'bg-white border-slate-100'}`}>
+                    
+                    <div className="space-y-3">
+                      <button 
+                        onClick={handleExportLocalData}
+                        className="w-full p-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-3 active:scale-95 transition-transform"
+                      >
+                        <Download className="w-5 h-5" />
+                        Exportar Backup Completo
+                      </button>
+                      
+                      <label className="block">
+                        <div className="w-full p-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-3 active:scale-95 transition-transform cursor-pointer">
+                          <Upload className="w-5 h-5" />
+                          Importar Backup
+                        </div>
+                        <input 
+                          type="file" 
+                          accept=".json" 
+                          onChange={handleImportLocalData} 
+                          className="hidden" 
+                        />
+                      </label>
+                    </div>
+                    
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 text-center">
+                      Exporte seus dados para um arquivo JSON. Use para:<br/>
+                      • Backup manual • Trocar de celular • Compartilhar entre dispositivos
+                    </p>
+                  </div>
+               </section>
 
                {/* User Profile Section */}
                <section className="space-y-4">
@@ -1296,7 +2319,6 @@ const App: React.FC = () => {
                   </button>
                   {isUserBoxOpen && (
                     <GlassCard isDark={isDark} className="p-5 md:p-6 space-y-4 animate-in slide-in-from-top-4 duration-300">
-                        {/* 2. Apenas o campo de nome */}
                         <div><label className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">{t.login_name}</label><input type="text" className={`w-full p-4 rounded-2xl text-sm font-bold border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`} value={user.name} onChange={(e) => setUser({...user, name: e.target.value})} /></div>
                     </GlassCard>
                   )}
@@ -1310,7 +2332,9 @@ const App: React.FC = () => {
                       <div className="w-10 h-10 md:w-12 md:h-12 bg-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600"><CreditCard className="w-5 h-5 md:w-6 md:h-6" /></div>
                       <div className="text-left">
                         <p className="font-black text-base md:text-lg">Contas Disponíveis</p>
-                        <p className="text-[10px] md:text-xs font-bold text-slate-400 tracking-tight">{settings.enabledAccounts.length} activas</p>
+                        <p className="text-[10px] md:text-xs font-bold text-slate-400 tracking-tight">
+                          {settings.enabledAccounts.length} activas • {(settings.inactiveAccounts?.length || 0)} inativas
+                        </p>
                       </div>
                     </div>
                     {isAccountsBoxOpen ? <ChevronUp className="w-5 h-5 text-slate-300" /> : <ChevronDown className="w-5 h-5 text-slate-300" />}
@@ -1318,46 +2342,161 @@ const App: React.FC = () => {
                   {isAccountsBoxOpen && (
                     <GlassCard isDark={isDark} className="p-5 md:p-6 space-y-6 animate-in slide-in-from-top-4 duration-300">
                         <div className="space-y-4 max-h-60 overflow-y-auto no-scrollbar">
-                           {settings.enabledAccounts.map((acc, idx) => {
-                             const accColor = settings.accountColors[acc] || settings.uiConfig.primaryColor;
-                             const isEditingColor = editingAccountColor === acc;
-                             return (
-                               <div key={`${acc}-${idx}`} className="space-y-3">
-                                 <div className={`flex items-center justify-between p-3 rounded-2xl ${isDark ? 'bg-slate-800/60' : 'bg-slate-50'}`}>
-                                    <div className="flex items-center gap-3">
-                                       <button 
-                                          onClick={() => setEditingAccountColor(isEditingColor ? null : acc)} 
-                                          className="w-8 h-8 rounded-full border-2 border-white/20 shadow-sm flex items-center justify-center transition-transform active:scale-90" 
-                                          style={{ backgroundColor: accColor }}
-                                       >
-                                         <Palette className="w-4 h-4 text-white opacity-80" />
-                                       </button>
-                                       <span className="font-bold text-xs md:text-sm uppercase truncate max-w-[120px] md:max-w-xs">{acc}</span>
-                                    </div>
-                                    <button onClick={() => {
-                                      if (settings.enabledAccounts.length <= 1) { alert("Mantenha ao menos uma conta activa."); return; }
-                                      setSettings({...settings, enabledAccounts: settings.enabledAccounts.filter(a => a !== acc)});
-                                    }} className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-xl transition-colors"><Trash2 className="w-4 h-4" /></button>
-                                 </div>
-                                 
-                                 {isEditingColor && (
-                                   <div className="flex gap-2 flex-wrap p-3 bg-black/10 dark:bg-black/30 rounded-2xl animate-in fade-in zoom-in-95 duration-200">
-                                      {PRESET_COLORS.map(c => (
+                           {/* Contas Ativas */}
+                           <div>
+                             <h4 className="text-[9px] font-black uppercase text-slate-500 dark:text-slate-400 mb-3">Contas Ativas</h4>
+                             {settings.enabledAccounts.map((acc, idx) => {
+                               const accColor = settings.accountColors[acc] || settings.uiConfig.primaryColor;
+                               const isEditingColor = editingAccountColor === acc;
+                               const isEditingName = editingAccountName === acc;
+                               
+                               return (
+                                 <div key={`active-${acc}-${idx}`} className="space-y-3 mb-4">
+                                   <div className={`flex items-center justify-between p-3 rounded-2xl ${isDark ? 'bg-slate-800/60' : 'bg-slate-50'}`}>
+                                      <div className="flex items-center gap-3">
+                                         <button 
+                                            onClick={() => setEditingAccountColor(isEditingColor ? null : acc)} 
+                                            className="w-8 h-8 rounded-full border-2 border-white/20 shadow-sm flex items-center justify-center transition-transform active:scale-90" 
+                                            style={{ backgroundColor: accColor }}
+                                         >
+                                           <Palette className="w-4 h-4 text-white opacity-80" />
+                                         </button>
+                                         
+                                         {isEditingName ? (
+                                           <input
+                                             type="text"
+                                             defaultValue={acc}
+                                             className={`font-bold text-xs md:text-sm border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-700 text-white' : 'bg-white text-slate-900'}`}
+                                             onBlur={(e) => handleEditAccountName(acc, e.target.value)}
+                                             onKeyPress={(e) => {
+                                               if (e.key === 'Enter') {
+                                                 handleEditAccountName(acc, e.currentTarget.value);
+                                               }
+                                             }}
+                                             autoFocus
+                                           />
+                                         ) : (
+                                           <div className="flex items-center gap-2">
+                                             <span className="font-bold text-xs md:text-sm uppercase truncate max-w-[100px] md:max-w-xs">{acc}</span>
+                                             <button 
+                                               onClick={() => setEditingAccountName(acc)}
+                                               className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md"
+                                             >
+                                               <Edit2 className="w-3 h-3" />
+                                             </button>
+                                           </div>
+                                         )}
+                                      </div>
+                                      <div className="flex items-center gap-2">
                                         <button 
-                                          key={c} 
-                                          onClick={() => {
-                                            setSettings({...settings, accountColors: {...settings.accountColors, [acc]: c}});
-                                            setEditingAccountColor(null);
-                                          }} 
-                                          className={`w-7 h-7 md:w-8 md:h-8 rounded-full border-2 transition-all hover:scale-110 ${accColor === c ? 'border-white' : 'border-transparent'}`} 
-                                          style={{ backgroundColor: c }}
-                                        />
-                                      ))}
+                                          onClick={() => toggleAccountStatus(acc)}
+                                          className="p-2 text-emerald-500 hover:bg-emerald-500/10 rounded-xl transition-colors"
+                                          title="Desativar conta"
+                                        >
+                                          <CheckCircle className="w-4 h-4" />
+                                        </button>
+                                        <button onClick={() => {
+                                          if (settings.enabledAccounts.length <= 1) { 
+                                            alert("Mantenha ao menos uma conta activa."); 
+                                            return; 
+                                          }
+                                          const newEnabledAccounts = settings.enabledAccounts.filter(a => a !== acc);
+                                          const newInactiveAccounts = [...(settings.inactiveAccounts || []), acc];
+                                          setSettings({
+                                            ...settings, 
+                                            enabledAccounts: newEnabledAccounts,
+                                            inactiveAccounts: newInactiveAccounts
+                                          });
+                                        }} className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-xl transition-colors"><Trash2 className="w-4 h-4" /></button>
+                                      </div>
                                    </div>
-                                 )}
-                               </div>
-                             );
-                           })}
+                                   
+                                   {isEditingColor && (
+                                     <div className="flex gap-2 flex-wrap p-3 bg-black/10 dark:bg-black/30 rounded-2xl animate-in fade-in zoom-in-95 duration-200">
+                                        {PRESET_COLORS.map(c => (
+                                          <button 
+                                            key={c} 
+                                            onClick={() => {
+                                              setSettings({...settings, accountColors: {...settings.accountColors, [acc]: c}});
+                                              setEditingAccountColor(null);
+                                            }} 
+                                            className={`w-7 h-7 md:w-8 md:h-8 rounded-full border-2 transition-all hover:scale-110 ${accColor === c ? 'border-white' : 'border-transparent'}`} 
+                                            style={{ backgroundColor: c }}
+                                          />
+                                        ))}
+                                     </div>
+                                   )}
+                                 </div>
+                               );
+                             })}
+                           </div>
+                           
+                           {/* Contas Inativas */}
+                           {(settings.inactiveAccounts && settings.inactiveAccounts.length > 0) && (
+                             <div>
+                               <h4 className="text-[9px] font-black uppercase text-slate-500 dark:text-slate-400 mb-3">Contas Inativas</h4>
+                               {settings.inactiveAccounts.map((acc, idx) => {
+                                 const accColor = settings.accountColors[acc] || settings.uiConfig.primaryColor;
+                                 const isEditingName = editingAccountName === acc;
+                                 
+                                 return (
+                                   <div key={`inactive-${acc}-${idx}`} className="space-y-3 mb-4">
+                                     <div className={`flex items-center justify-between p-3 rounded-2xl opacity-60 ${isDark ? 'bg-slate-800/40' : 'bg-slate-50'}`}>
+                                        <div className="flex items-center gap-3">
+                                           <div 
+                                              className="w-8 h-8 rounded-full border-2 border-white/20 shadow-sm flex items-center justify-center transition-transform active:scale-90" 
+                                              style={{ backgroundColor: accColor }}
+                                           >
+                                             <Palette className="w-4 h-4 text-white opacity-80" />
+                                           </div>
+                                           
+                                           {isEditingName ? (
+                                             <input
+                                               type="text"
+                                               defaultValue={acc}
+                                               className={`font-bold text-xs md:text-sm border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-700 text-white' : 'bg-white text-slate-900'}`}
+                                               onBlur={(e) => handleEditAccountName(acc, e.target.value)}
+                                               onKeyPress={(e) => {
+                                                 if (e.key === 'Enter') {
+                                                   handleEditAccountName(acc, e.currentTarget.value);
+                                                 }
+                                               }}
+                                               autoFocus
+                                             />
+                                           ) : (
+                                             <div className="flex items-center gap-2">
+                                               <span className="font-bold text-xs md:text-sm uppercase truncate max-w-[100px] md:max-w-xs">{acc}</span>
+                                               <button 
+                                                 onClick={() => setEditingAccountName(acc)}
+                                                 className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md"
+                                               >
+                                                 <Edit2 className="w-3 h-3" />
+                                               </button>
+                                             </div>
+                                           )}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <button 
+                                            onClick={() => toggleAccountStatus(acc)}
+                                            className="p-2 text-slate-500 hover:bg-slate-500/10 rounded-xl transition-colors"
+                                            title="Ativar conta"
+                                          >
+                                            <Circle className="w-4 h-4" />
+                                          </button>
+                                          <button onClick={() => {
+                                            const newInactiveAccounts = settings.inactiveAccounts?.filter(a => a !== acc) || [];
+                                            setSettings({
+                                              ...settings, 
+                                              inactiveAccounts: newInactiveAccounts
+                                            });
+                                          }} className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-xl transition-colors"><Trash2 className="w-4 h-4" /></button>
+                                        </div>
+                                     </div>
+                                   </div>
+                                 );
+                               })}
+                             </div>
+                           )}
                         </div>
                         <div className="flex gap-2 pt-4 border-t border-slate-100 dark:border-slate-800">
                            <input 
@@ -1371,7 +2510,10 @@ const App: React.FC = () => {
                              onClick={() => {
                                if(!newAccName.trim()) return;
                                const trimmed = newAccName.trim();
-                               if(settings.enabledAccounts.includes(trimmed)) { alert("Conta já existe."); return; }
+                               if(settings.enabledAccounts.includes(trimmed) || settings.inactiveAccounts?.includes(trimmed)) { 
+                                 alert("Conta já existe."); 
+                                 return; 
+                               }
                                setSettings({
                                  ...settings, 
                                  enabledAccounts: [...settings.enabledAccounts, trimmed],
@@ -1514,6 +2656,22 @@ const App: React.FC = () => {
           onCreateAutomaticBackup={handleCreateAutomaticBackup}
         />}
         
+        {showEditTransactionModal && editingTransaction && (
+          <EditTransactionModal
+            isDark={isDark}
+            t={t}
+            transaction={editingTransaction}
+            onClose={() => {
+              setShowEditTransactionModal(false);
+              setEditingTransaction(null);
+            }}
+            onSave={handleEditTransaction}
+            onSendConfirmation={handleSendTransactionConfirmation}
+            settings={settings}
+            selectedClient={selectedClient!}
+          />
+        )}
+        
         {showSMSConfirmModal.show && (
            <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-lg">
              <div className={`${isDark ? 'bg-slate-900 border border-white/5' : 'bg-white'} w-full max-w-[340px] rounded-[3.5rem] p-8 shadow-2xl animate-in zoom-in-95 duration-200`}>
@@ -1526,6 +2684,163 @@ const App: React.FC = () => {
                 </div>
              </div>
            </div>
+        )}
+
+        {/* Modal de Sincronização Automática */}
+        {showAutoSyncPrompt && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-lg">
+            <div className={`${isDark ? 'bg-slate-900 border border-white/5' : 'bg-white'} w-full max-w-sm rounded-[3.5rem] p-8 shadow-2xl animate-in zoom-in-95 duration-200`}>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-black">Sincronização Automática</h3>
+                <button onClick={() => setShowAutoSyncPrompt(false)} className="p-2 hover:bg-slate-800/20 rounded-xl transition-colors">
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="mb-8 space-y-4">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center text-emerald-500">
+                    <Cloud className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <p className="font-black text-base">Sincronização Disponível</p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                      Deseja sincronizar seus dados com a nuvem?
+                    </p>
+                  </div>
+                </div>
+                
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Seus dados estão salvos localmente. Para sincronizar com a nuvem e acessar de qualquer dispositivo:
+                </p>
+                
+                <div className="space-y-3">
+                  <button 
+                    onClick={handleAutoSync}
+                    disabled={isSyncing}
+                    className="w-full p-4 bg-blue-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-transform disabled:opacity-50"
+                  >
+                    {isSyncing ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        Conectando com Google...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" viewBox="0 0 24 24">
+                          <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                          <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                          <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                          <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                        </svg>
+                        Continuar com Google
+                      </>
+                    )}
+                  </button>
+                  
+                  <button 
+                    onClick={() => {
+                      setShowAutoSyncPrompt(false);
+                      setShowFirebaseLogin(true);
+                    }}
+                    className="w-full p-4 border border-slate-300 dark:border-slate-700 rounded-2xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                  >
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                      <polyline points="22,6 12,13 2,6"/>
+                    </svg>
+                    Usar outro email
+                  </button>
+                  
+                  <button 
+                    onClick={() => setShowAutoSyncPrompt(false)}
+                    className="w-full p-4 text-slate-500 dark:text-slate-400 rounded-2xl font-bold"
+                  >
+                    Agora não
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Login Firebase */}
+        {showFirebaseLogin && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-lg">
+            <div className={`${isDark ? 'bg-slate-900 border border-white/5' : 'bg-white'} w-full max-w-sm rounded-[3.5rem] p-8 shadow-2xl animate-in zoom-in-95 duration-200`}>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-black">Sincronização na Nuvem</h3>
+                <button onClick={() => setShowFirebaseLogin(false)} className="p-2 hover:bg-slate-800/20 rounded-xl transition-colors">
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="mb-8 space-y-4">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase ml-2 mb-1 block">Email</label>
+                  <input 
+                    type="email" 
+                    placeholder="seu@email.com" 
+                    className={`w-full p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800 text-white' : 'bg-gray-100 text-gray-900'}`}
+                    value={firebaseEmail}
+                    onChange={(e) => setFirebaseEmail(e.target.value)}
+                  />
+                </div>
+                
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase ml-2 mb-1 block">Senha</label>
+                  <input 
+                    type="password" 
+                    placeholder="••••••••" 
+                    className={`w-full p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800 text-white' : 'bg-gray-100 text-gray-900'}`}
+                    value={firebasePassword}
+                    onChange={(e) => setFirebasePassword(e.target.value)}
+                  />
+                </div>
+                
+                <button 
+                  onClick={handleGoogleLogin}
+                  disabled={isSyncing}
+                  className="w-full p-4 border border-slate-300 dark:border-slate-700 rounded-2xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-transform disabled:opacity-50"
+                >
+                  <svg className="w-5 h-5" viewBox="0 0 24 24">
+                    <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                  </svg>
+                  Continuar com Google
+                </button>
+                
+                {firebaseError && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-500 text-[10px] font-bold animate-in fade-in">
+                    {firebaseError}
+                  </div>
+                )}
+                
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                  Se não tiver uma conta, será criada automaticamente.
+                  Sua senha será usada apenas para sincronização.
+                </p>
+              </div>
+              
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setShowFirebaseLogin(false)}
+                  className={`flex-1 p-4 rounded-2xl font-bold ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-gray-500'}`}
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={handleFirebaseLogin}
+                  disabled={isSyncing}
+                  className="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSyncing ? 'Processando...' : 'Conectar'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
