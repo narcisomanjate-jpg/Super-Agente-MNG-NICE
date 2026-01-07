@@ -1,0 +1,73 @@
+name: Build Android APK Automático
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:  # Permite rodar manualmente
+
+jobs:
+  build-android-apk:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🛎️ Checkout do código
+      uses: actions/checkout@v4
+      
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: 📦 Instalar dependências
+      run: |
+        npm ci
+        npm install -g @capacitor/cli
+        
+    - name: ⚙️ Configurar Capacitor
+      run: |
+        npx cap init --web-dir dist --package-id com.narcisomanjate.superagentemng --app-name "Super Agente MNG" --yes
+        npx cap add android
+        
+        # Usa o config.json se existir
+        if [ -f "capacitor.config.json" ]; then
+          echo "✅ Usando capacitor.config.json"
+        else
+          # Converte .ts para .json se necessário
+          npx cap sync
+        fi
+        
+        npx cap sync android
+        
+    - name: 🏭 Build APK
+      run: |
+        cd android
+        chmod +x gradlew
+        ./gradlew assembleDebug
+        
+    - name: 📤 Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: super-agente-apk
+        path: android/app/build/outputs/apk/debug/*.apk
+        retention-days: 7
+        
+    - name: 🎉 Criar Release
+      uses: softprops/action-gh-release@v1
+      if: success()
+      with:
+        tag_name: v1.0.${{ github.run_number }}
+        name: "Super Agente MNG APK"
+        body: |
+          📱 **APK gerado automaticamente**
+          
+          **Instalação:**
+          1. Baixe o arquivo `.apk`
+          2. Transfira para seu celular Android
+          3. Permita "Fontes desconhecidas"
+          4. Instale e teste!
+          
+          **Build Info:**
+          - Commit: ${{ github.sha }}
+          - Data: ${{ github.event.head_commit.timestamp }}
+        files: android/app/build/outputs/apk/debug/*.apk
