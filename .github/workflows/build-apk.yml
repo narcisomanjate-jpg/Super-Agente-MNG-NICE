@@ -1,40 +1,43 @@
-name: Build APK Simples
+name: Build Android APK
 
 on:
-  push:
-    branches: [main]
+  workflow_run:
+    workflows: ["Deploy Site to GitHub Pages"]
+    types: [completed]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-apk:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-
+    
     - name: Setup Java
       uses: actions/setup-java@v3
       with:
         distribution: temurin
         java-version: 17
-
+    
     - name: Setup Node
       uses: actions/setup-node@v4
       with:
         node-version: 18
-
+    
     - name: Remove TypeScript Config
       run: rm -f capacitor.config.ts capacitor.config.json
-
+    
     - name: Install Capacitor
       run: npm install -g @capacitor/cli
-
+    
     - name: Prepare Web Files
       run: |
         mkdir -p dist
         cp index.html dist/
         [ -d "assets" ] && cp -r assets dist/
         [ -d "public" ] && cp -r public dist/
-
+    
     - name: Create Config
       run: |
         echo '{
@@ -42,192 +45,18 @@ jobs:
           "appName": "Super Agente MNG",
           "webDir": "dist"
         }' > capacitor.config.json
-
+    
     - name: Init Android
       run: npx cap add android --yes && npx cap sync android
-
+    
     - name: Build APK
       run: |
         cd android
         chmod +x gradlew
         ./gradlew assembleDebug
-
+    
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: app-apk
-        path: android/app/build/outputs/apk/debug/*.apkname: Build APK Simples
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Setup Java
-      uses: actions/setup-java@v3
-      with:
-        distribution: temurin
-        java-version: 17
-
-    - name: Setup Node
-      uses: actions/setup-node@v4
-      with:
-        node-version: 18
-
-    - name: Remove TypeScript Config
-      run: rm -f capacitor.config.ts capacitor.config.json
-
-    - name: Install Capacitor
-      run: npm install -g @capacitor/cli
-
-    - name: Prepare Web Files
-      run: |
-        mkdir -p dist
-        cp index.html dist/
-        [ -d "assets" ] && cp -r assets dist/
-        [ -d "public" ] && cp -r public dist/
-
-    - name: Create Config
-      run: |
-        echo '{
-          "appId": "com.narcisomanjate.superagentemng",
-          "appName": "Super Agente MNG",
-          "webDir": "dist"
-        }' > capacitor.config.json
-
-    - name: Init Android
-      run: npx cap add android --yes && npx cap sync android
-
-    - name: Build APK
-      run: |
-        cd android
-        chmod +x gradlew
-        ./gradlew assembleDebug
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-apk
-        path: android/app/build/outputs/apk/debug/*.apkname: Build APK Simples
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Setup Java
-      uses: actions/setup-java@v3
-      with:
-        distribution: temurin
-        java-version: 17
-
-    - name: Setup Node
-      uses: actions/setup-node@v4
-      with:
-        node-version: 18
-
-    - name: Remove TypeScript Config
-      run: rm -f capacitor.config.ts capacitor.config.json
-
-    - name: Install Capacitor
-      run: npm install -g @capacitor/cli
-
-    - name: Prepare Web Files
-      run: |
-        mkdir -p dist
-        cp index.html dist/
-        [ -d "assets" ] && cp -r assets dist/
-        [ -d "public" ] && cp -r public dist/
-
-    - name: Create Config
-      run: |
-        echo '{
-          "appId": "com.narcisomanjate.superagentemng",
-          "appName": "Super Agente MNG",
-          "webDir": "dist"
-        }' > capacitor.config.json
-
-    - name: Init Android
-      run: npx cap add android --yes && npx cap sync android
-
-    - name: Build APK
-      run: |
-        cd android
-        chmod +x gradlew
-        ./gradlew assembleDebug
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-apk
-        path: android/app/build/outputs/apk/debug/*.apkname: Build APK Simples
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Setup Java
-      uses: actions/setup-java@v3
-      with:
-        distribution: temurin
-        java-version: 17
-
-    - name: Setup Node
-      uses: actions/setup-node@v4
-      with:
-        node-version: 18
-
-    - name: Remove TypeScript Config
-      run: rm -f capacitor.config.ts capacitor.config.json
-
-    - name: Install Capacitor
-      run: npm install -g @capacitor/cli
-
-    - name: Prepare Web Files
-      run: |
-        mkdir -p dist
-        cp index.html dist/
-        [ -d "assets" ] && cp -r assets dist/
-        [ -d "public" ] && cp -r public dist/
-
-    - name: Create Config
-      run: |
-        echo '{
-          "appId": "com.narcisomanjate.superagentemng",
-          "appName": "Super Agente MNG",
-          "webDir": "dist"
-        }' > capacitor.config.json
-
-    - name: Init Android
-      run: npx cap add android --yes && npx cap sync android
-
-    - name: Build APK
-      run: |
-        cd android
-        chmod +x gradlew
-        ./gradlew assembleDebug
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-apk
+        name: super-agente-apk
         path: android/app/build/outputs/apk/debug/*.apk
