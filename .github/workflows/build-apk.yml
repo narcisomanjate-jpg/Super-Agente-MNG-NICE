@@ -24,6 +24,11 @@ jobs:
       with:
         node-version: '18'
         
+    - name: Remove TypeScript Config
+      run: |
+        rm -f capacitor.config.ts
+        rm -f capacitor.config.json
+        
     - name: Install Capacitor
       run: npm install -g @capacitor/cli
       
@@ -34,15 +39,7 @@ jobs:
         [ -d "assets" ] && cp -r assets dist/
         [ -d "public" ] && cp -r public dist/
         
-    - name: Create Simple Config
-      run: |
-        echo '{
-          "appId": "com.narcisomanjate.superagentemng",
-          "appName": "Super Agente MNG",
-          "webDir": "dist"
-        }' > capacitor.config.json
-        
-    - name: Init Android
+    - name: Init Android (NO CONFIG FILES)
       run: |
         npx cap init --web-dir dist --package-id com.narcisomanjate.superagentemng --app-name "Super Agente MNG" --yes
         npx cap add android --yes
