@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => {
   
   return {
     root: './', // ← Garante que o Vite procure o index.html e os arquivos na raiz
-    base: '/',
+    base: './',
     
     server: {
       port: 3000,
