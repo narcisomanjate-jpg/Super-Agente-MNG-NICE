@@ -1,3 +1,17 @@
-node_modules/  
-dist/  
-.env.local 
+node_modules/
+dist/
+.env.local
+
+# Adicione daqui para baixo:
+android/
+capacitor-cordova-android-plugins/
+.env
+.env.*
+build/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+npm-debug.log*

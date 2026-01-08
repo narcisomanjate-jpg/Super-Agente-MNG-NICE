@@ -1,9 +1,9 @@
-
 {
   "name": "Super Agente MNG NICE",
   "short_name": "AgenteMNG",
   "description": "Gestão Financeira Avançada para Agentes em Moçambique. Gestão de clientes, créditos e transações offline.",
-  "start_url": "./index.html",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0f172a",
@@ -20,7 +20,7 @@
       "src": "https://cdn-icons-png.flaticon.com/512/2830/2830284.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "maskable"
+      "purpose": "any maskable"
     }
   ],
   "screenshots": [
@@ -28,7 +28,8 @@
       "src": "https://cdn-icons-png.flaticon.com/512/2830/2830284.png",
       "sizes": "512x512",
       "type": "image/png",
-      "form_factor": "narrow"
+      "form_factor": "narrow",
+      "label": "Página Inicial do Agente MNG"
     }
   ]
 }
