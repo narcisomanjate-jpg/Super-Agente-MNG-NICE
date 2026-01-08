@@ -4,13 +4,148 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Super Agente MNG</title>
+
+    <link rel="manifest" href="./assets/site-BwHFeIBa.webmanifest">
+    <link rel="apple-touch-icon" href="./assets/apple-touch-icon-CsJxrUGy.png">
+    <meta name="theme-color" content="#0f172a">
+
+    <style>
+        /* Estilo da Splash Screen */
+        #splash-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #0f172a; /* Cor fundo do seu App */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease-out;
+        }
+        
+        .splash-logo {
+            width: 180px;
+            height: auto;
+            animation: pulse 2s infinite ease-in-out;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        .fade-out {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
   <script type="module" crossorigin src="./assets/index-rOxCzfil.js"></script>
   <link rel="modulepreload" crossorigin href="./assets/vendor-uS-d4TUT.js">
   <link rel="modulepreload" crossorigin href="./assets/firebase-Bd0EvsHP.js">
   <link rel="stylesheet" crossorigin href="./assets/index-D7_v22s3.css">
 </head>
 <body>
+    <div id="splash-screen">
+        <img src="./assets/android-chrome-512x512-nCBtPVHr.png" alt="Super Agente MNG" class="splash-logo">
+    </div>
+
     <div id="root"></div>
     
+
+    <script>
+        // Remove a splash screen após o carregamento total da página
+        window.addEventListener('load', () => {
+            const splash = document.getElementById('splash-screen');
+            setTimeout(() => {
+                splash.classList.add('fade-out');
+            }, 1500); // Exibe por 1.5 segundos
+        });
+
+        // Registro do Service Worker para PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(err => {
+                    console.log('Service Worker registration failed: ', err);
+                });
+            });
+        }
+    </script>
+</body>
+</html><!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Agente MNG</title>
+
+    <link rel="manifest" href="./assets/site-BwHFeIBa.webmanifest">
+    <link rel="apple-touch-icon" href="./assets/apple-touch-icon-CsJxrUGy.png">
+    <meta name="theme-color" content="#0f172a">
+
+    <style>
+        /* Estilo da Splash Screen */
+        #splash-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #0f172a; /* Cor fundo do seu App */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease-out;
+        }
+        
+        .splash-logo {
+            width: 180px;
+            height: auto;
+            animation: pulse 2s infinite ease-in-out;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        .fade-out {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="splash-screen">
+        <img src="./assets/android-chrome-512x512-nCBtPVHr.png" alt="Super Agente MNG" class="splash-logo">
+    </div>
+
+    <div id="root"></div>
+    
+
+    <script>
+        // Remove a splash screen após o carregamento total da página
+        window.addEventListener('load', () => {
+            const splash = document.getElementById('splash-screen');
+            setTimeout(() => {
+                splash.classList.add('fade-out');
+            }, 1500); // Exibe por 1.5 segundos
+        });
+
+        // Registro do Service Worker para PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(err => {
+                    console.log('Service Worker registration failed: ', err);
+                });
+            });
+        }
+    </script>
 </body>
 </html>
