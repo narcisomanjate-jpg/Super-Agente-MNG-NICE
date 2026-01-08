@@ -1,0 +1,312 @@
+ 
+/* src/effects.css */
+/* Efeitos táteis e animações para Super Agente */
+
+/* ===== EFEITOS DE TOQUE ===== */
+.active-scale {
+  transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.active-scale:active {
+  transform: scale(0.95);
+}
+
+.press-effect {
+  position: relative;
+  overflow: hidden;
+}
+
+.press-effect::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.5);
+  opacity: 0;
+  border-radius: 100%;
+  transform: scale(1, 1) translate(-50%, -50%);
+  transform-origin: 50% 50%;
+}
+
+.press-effect:active::after {
+  animation: ripple 600ms cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 1;
+}
+
+@keyframes ripple {
+  0% {
+    transform: scale(0, 0) translate(-50%, -50%);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(40, 40) translate(-50%, -50%);
+    opacity: 0;
+  }
+}
+
+/* Efeito de "pressionar" para botões */
+.btn-press {
+  transition: all 200ms ease;
+}
+
+.btn-press:active {
+  transform: translateY(2px);
+  filter: brightness(0.9);
+}
+
+/* ===== FEEDBACK DE CAMPOS ===== */
+.input-focus {
+  transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.input-focus:focus {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.3),
+              0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.input-success {
+  animation: success-pulse 1s ease;
+  box-shadow: 0 0 0 2px #10b981;
+}
+
+.input-error {
+  animation: shake 0.5s cubic-bezier(.36,.07,.19,.97);
+  box-shadow: 0 0 0 2px #ef4444;
+}
+
+@keyframes success-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.5);
+  }
+}
+
+@keyframes shake {
+  10%, 90% {
+    transform: translateX(-1px);
+  }
+  20%, 80% {
+    transform: translateX(2px);
+  }
+  30%, 50%, 70% {
+    transform: translateX(-3px);
+  }
+  40%, 60% {
+    transform: translateX(3px);
+  }
+}
+
+/* ===== ANIMAÇÕES DE CARREGAMENTO ===== */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.2) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Efeito de "pulse" para chamar atenção */
+.pulse-attention {
+  animation: pulse-glow 2s infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px currentColor;
+  }
+  50% {
+    box-shadow: 0 0 20px currentColor, 0 0 30px rgba(currentColor, 0.2);
+  }
+}
+
+/* ===== ANIMAÇÕES DE ENTRADA ===== */
+.slide-in-right {
+  animation: slideInRight 300ms ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.slide-in-bottom {
+  animation: slideInBottom 300ms ease-out;
+}
+
+@keyframes slideInBottom {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 200ms ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ===== EFEITOS DE TRANSição ===== */
+.page-transition {
+  animation: pageTransition 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes pageTransition {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ===== FEEDBACK DE CONEXÃO ===== */
+.connection-pulse {
+  animation: connectionPulse 2s infinite;
+}
+
+@keyframes connectionPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* ===== EFEITO DE "SUCCESS" ===== */
+.success-bounce {
+  animation: successBounce 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+@keyframes successBounce {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ===== CLASSES UTILITÁRIAS ===== */
+.no-select {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.smooth-scroll {
+  scroll-behavior: smooth;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ===== EFEITOS PARA MOBILE ===== */
+@media (max-width: 768px) {
+  .mobile-tap-highlight {
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+  }
+  
+  .mobile-press:active {
+    background-color: rgba(0, 0, 0, 0.05);
+  }
+}
+
+/* ===== EFEITO DE "GLITCH" PARA ERROS CRÍTICOS ===== */
+@keyframes glitch {
+  0% {
+    transform: translate(0);
+  }
+  20% {
+    transform: translate(-2px, 2px);
+  }
+  40% {
+    transform: translate(-2px, -2px);
+  }
+  60% {
+    transform: translate(2px, 2px);
+  }
+  80% {
+    transform: translate(2px, -2px);
+  }
+  100% {
+    transform: translate(0);
+  }
+}
+
+.glitch-error {
+  animation: glitch 0.5s linear;
+  color: #ef4444;
+  position: relative;
+}
+
+.glitch-error::before,
+.glitch-error::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.glitch-error::before {
+  animation: glitch 0.3s linear reverse;
+  color: #f87171;
+  z-index: -1;
+}
+
+.glitch-error::after {
+  animation: glitch 0.3s linear forwards;
+  color: #dc2626;
+  z-index: -2;
+}

@@ -7,7 +7,8 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   
   return {
-    base: '/super-agente-mng-nice/',
+    root: './', // ← Garante que o Vite procure o index.html e os arquivos na raiz
+    base: '/',
     
     server: {
       port: 3000,
@@ -39,6 +40,7 @@ export default defineConfig(({ mode }) => {
     
     build: {
       outDir: 'dist',
+      emptyOutDir: true,
       sourcemap: false,
       rollupOptions: {
         output: {

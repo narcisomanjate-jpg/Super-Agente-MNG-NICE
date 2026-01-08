@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#3b82f6">
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/super-agente-mng-nice/manifest.json">
+    
+    <!-- Ícones Apple -->
+    <link rel="apple-touch-icon" href="/super-agente-mng-nice/public/icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Super Agente MNG">
+    
+    <!-- Splash Screens para iOS -->
+    <link rel="apple-touch-startup-image" 
+          href="/super-agente-mng-nice/public/icons/android-chrome-512x512.png"
+          media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)">
+    <link rel="apple-touch-startup-image" 
+          href="/super-agente-mng-nice/public/icons/android-chrome-512x512.png"
+          media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)">
+    
+    <!-- Ícones Windows/Android -->
+    <meta name="msapplication-TileColor" content="#3b82f6">
+    <meta name="msapplication-TileImage" content="/super-agente-mng-nice/public/icons/android-chrome-144x144.png">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/super-agente-mng-nice/public/icons/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/super-agente-mng-nice/public/icons/favicon-16x16.png">
+    <link rel="shortcut icon" href="/super-agente-mng-nice/public/icons/favicon.ico">
+    
+    <title>Super Agente MNG NICE</title>
+    
+    <!-- CDNs -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+    <!-- Custom Styles -->
+    <style>
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            -webkit-tap-highlight-color: transparent; 
+            overscroll-behavior-y: contain; 
+            margin: 0;
+            padding: 0;
+        }
+        .glass { 
+            background: rgba(255, 255, 255, 0.05); 
+            backdrop-filter: blur(12px); 
+            -webkit-backdrop-filter: blur(12px); 
+        }
+        .glass-dark { 
+            background: rgba(15, 23, 42, 0.6); 
+            backdrop-filter: blur(12px); 
+            -webkit-backdrop-filter: blur(12px); 
+        }
+        .safe-bottom { 
+            padding-bottom: env(safe-area-inset-bottom); 
+        }
+        .no-scrollbar::-webkit-scrollbar { 
+            display: none; 
+        }
+        .no-scrollbar { 
+            -ms-overflow-style: none; 
+            scrollbar-width: none; 
+        }
+        
+        /* Splash Screen CSS */
+        #splash-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease-out;
+        }
+        
+        #splash-screen img {
+            width: 120px;
+            height: 120px;
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+    </style>
+
+    <!-- Import Map para CDNs -->
+
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@19.2.3",
+        "react/": "https://esm.sh/react@19.2.3/",
+        "react-dom": "https://esm.sh/react-dom@19.2.3",
+        "react-dom/": "https://esm.sh/react-dom@19.2.3/",
+        "lucide-react": "https://esm.sh/lucide-react@0.562.0",
+        "recharts": "https://esm.sh/recharts@3.6.0",
+        "localforage": "https://esm.sh/localforage@1.10.0"
+      }
+    }
+    </script>
+  <script type="module" crossorigin src="/super-agente-mng-nice/assets/index-DPULid6r.js"></script>
+  <link rel="modulepreload" crossorigin href="/super-agente-mng-nice/assets/vendor-uS-d4TUT.js">
+</head>
+<body class="bg-gray-50 antialiased overflow-hidden">
+    <!-- Splash Screen -->
+    <div id="splash-screen">
+        <img src="/super-agente-mng-nice/public/icons/android-chrome-512x512.png" alt="Super Agente MNG">
+    </div>
+    
+    <!-- App Root -->
+    <div id="root"></div>
+    
+    <!-- Ponto de Entrada do React App - VERSÃO CORRIGIDA -->
+    
+</body>
+</html>

@@ -1,9 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import App from './App'; 
 import localforage from 'localforage';
 
-// IMPORTE O CSS AQUI
+// Importe o CSS do Tailwind
 import './index.css';
 
 // Configuração do banco de dados
