@@ -1278,13 +1278,51 @@ const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [showAutoSyncPrompt, setShowAutoSyncPrompt] = useState<boolean>(false);
 
-  // REMOVIDO: Referências para navegação por swipe
+  // Referências para navegação por swipe
+  const touchStartX = useRef<number>(0);
+  const touchEndX = useRef<number>(0);
   const mainRef = useRef<HTMLDivElement>(null);
 
-  // Navegação entre abas (mantido apenas para referência)
+  // Navegação entre abas
   const views: ViewState[] = ['dashboard', 'clients', 'settings'];
   
-  // REMOVIDO: Funções de swipe
+  const handleSwipe = (direction: 'left' | 'right') => {
+    if (['client-detail', 'client-archive'].includes(view)) return;
+    
+    const currentIndex = views.indexOf(view);
+    let newIndex = currentIndex;
+    
+    if (direction === 'right' && currentIndex > 0) {
+      newIndex = currentIndex - 1;
+    } else if (direction === 'left' && currentIndex < views.length - 1) {
+      newIndex = currentIndex + 1;
+    }
+    
+    if (newIndex !== currentIndex) {
+      setView(views[newIndex]);
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    touchEndX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = () => {
+    const distance = touchEndX.current - touchStartX.current;
+    const minSwipeDistance = 50;
+
+    if (Math.abs(distance) < minSwipeDistance) return;
+
+    if (distance > 0) {
+      handleSwipe('right');
+    } else {
+      handleSwipe('left');
+    }
+  };
 
   // Monitorar autenticação Firebase
   useEffect(() => {
@@ -1870,7 +1908,9 @@ const App: React.FC = () => {
     <div className={`fixed inset-0 flex items-center justify-center p-0 md:p-4 lg:p-8 transition-colors duration-500 ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
       <div 
         className={`w-full h-full max-w-md md:max-w-lg md:h-[90vh] md:max-h-[1000px] md:rounded-[3.5rem] app-shadow flex flex-col transition-all overflow-hidden relative ${isDark ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-900'} border border-white/5`}
-        // REMOVIDO: Eventos de touch/swipe
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
         <main 
           className="flex-1 overflow-y-auto relative no-scrollbar"
