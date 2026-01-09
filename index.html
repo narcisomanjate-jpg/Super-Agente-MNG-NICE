@@ -12,7 +12,11 @@
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 
     <style>
-        body { font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: contain; }
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            -webkit-tap-highlight-color: transparent; 
+            overscroll-behavior-y: contain; 
+        }
         .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
         .glass-dark { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
         .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
@@ -33,19 +37,23 @@
       }
     }
     </script>
-    <link rel="stylesheet" href="/index.css">
+
+    <link rel="stylesheet" href="index.css">
 </head>
 <body class="bg-gray-50 antialiased overflow-hidden">
     <div id="root"></div>
+
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js', { scope: '/' })
+          // AJUSTE: O scope deve ser './' para funcionar dentro da subpasta do repositório
+          navigator.serviceWorker.register('./sw.js', { scope: './' })
             .then(reg => console.log('SW ativo'))
             .catch(err => console.log('Erro no SW:', err));
         });
       }
     </script>
-    <script type="module" src="/index.tsx"></script>
+
+    <script type="module" src="index.tsx"></script>
 </body>
 </html>
