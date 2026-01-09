@@ -4,184 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#3b82f6">
-    
-    <!-- PWA Manifest -->
-    <link rel="manifest" href="/super-agente-mng-nice/manifest.json">
-    
-    <!-- Ícones Apple -->
-    <link rel="apple-touch-icon" href="/super-agente-mng-nice/public/icons/apple-touch-icon.png">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Super Agente MNG">
-    
-    <!-- Splash Screens para iOS -->
-    <link rel="apple-touch-startup-image" 
-          href="/super-agente-mng-nice/public/icons/android-chrome-512x512.png"
-          media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)">
-    <link rel="apple-touch-startup-image" 
-          href="/super-agente-mng-nice/public/icons/android-chrome-512x512.png"
-          media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)">
-    
-    <!-- Ícones Windows/Android -->
-    <meta name="msapplication-TileColor" content="#3b82f6">
-    <meta name="msapplication-TileImage" content="/super-agente-mng-nice/public/icons/android-chrome-144x144.png">
-    
-    <!-- Favicon -->
-    <link rel="icon" type="image/png" sizes="32x32" href="/super-agente-mng-nice/public/icons/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/super-agente-mng-nice/public/icons/favicon-16x16.png">
-    <link rel="shortcut icon" href="/super-agente-mng-nice/public/icons/favicon.ico">
-    
+    <link rel="manifest" href="./assets/manifest-pfAatAmV.json">
     <title>Super Agente MNG NICE</title>
     
-    <!-- 🌟 CDNs MODIFICADAS para Opção C (Híbrido) -->
-    <!-- Tailwind LOCAL (funciona offline) -->
-    <link href="/super-agente-mng-nice/public/css/tailwind.min.css" rel="stylesheet">
-    
-    <!-- Google Fonts com fallback (funciona parcial offline) -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    
-    <!-- Google Sign-In (SOMENTE online) -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 
-    <!-- Custom Styles com fallback para offline -->
     <style>
-        /* Fallback font para quando Google Fonts não carregar */
-        @font-face {
-            font-family: 'JakartaFallback';
-            src: local('Arial'), local('Helvetica Neue'), local('Segoe UI'), sans-serif;
-        }
-        
-        body { 
-            font-family: 'Plus Jakarta Sans', 'JakartaFallback', sans-serif; 
-            -webkit-tap-highlight-color: transparent; 
-            overscroll-behavior-y: contain; 
-            margin: 0;
-            padding: 0;
-            background: #ffffff;
-        }
-        .glass { 
-            background: rgba(255, 255, 255, 0.05); 
-            backdrop-filter: blur(12px); 
-            -webkit-backdrop-filter: blur(12px); 
-        }
-        .glass-dark { 
-            background: rgba(15, 23, 42, 0.6); 
-            backdrop-filter: blur(12px); 
-            -webkit-backdrop-filter: blur(12px); 
-        }
-        .safe-bottom { 
-            padding-bottom: env(safe-area-inset-bottom); 
-        }
-        .no-scrollbar::-webkit-scrollbar { 
-            display: none; 
-        }
-        .no-scrollbar { 
-            -ms-overflow-style: none; 
-            scrollbar-width: none; 
-        }
-        
-        /* SPLASH SCREEN - TELA CHEIA */
-        #splash-screen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-            opacity: 1;
-            transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        
-        #splash-screen.hidden {
-            opacity: 0;
-            pointer-events: none;
-        }
-        
-        #splash-screen img.splash-logo {
-            width: 70vw;
-            max-width: 280px;
-            height: auto;
-            margin-bottom: 24px;
-            animation: splashLogoFloat 3s ease-in-out infinite;
-            filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.2));
-        }
-        
-        .splash-loading {
-            width: 60px;
-            height: 60px;
-            border: 4px solid rgba(255, 255, 255, 0.2);
-            border-top-color: white;
-            border-radius: 50%;
-            animation: splashSpin 1s linear infinite;
-        }
-        
-        .splash-title {
-            color: white;
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-top: 24px;
-            text-align: center;
-            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-            padding: 0 20px;
-        }
-        
-        /* 🌟 TELA DE "SEM INTERNET" (aparece se offline) */
-        #offline-screen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            display: none;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 9998;
-            color: white;
-            text-align: center;
-            padding: 20px;
-        }
-        
-        .offline-icon {
-            font-size: 3rem;
-            margin-bottom: 20px;
-        }
-        
-        .offline-message {
-            font-size: 1.2rem;
-            margin-bottom: 10px;
-            max-width: 300px;
-        }
-        
-        .offline-detail {
-            font-size: 0.9rem;
-            opacity: 0.8;
-            max-width: 300px;
-        }
-        
-        @keyframes splashLogoFloat {
-            0%, 100% { transform: translateY(0) scale(1); }
-            50% { transform: translateY(-10px) scale(1.02); }
-        }
-        
-        @keyframes splashSpin {
-            to { transform: rotate(360deg); }
-        }
-        
-        /* Previne scroll durante splash */
-        body.splash-active {
-            overflow: hidden;
-            height: 100vh;
-        }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: contain; }
+        .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+        .glass-dark { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 
-    <!-- Import Map para CDNs -->
+
+    <link rel="stylesheet" href="/index.css">
     <script type="importmap">
     {
       "imports": {
@@ -195,151 +35,18 @@
       }
     }
     </script>
-    <script type="module" crossorigin src="/super-agente-mng-nice/assets/index-DPULid6r.js"></script>
-    <link rel="modulepreload" crossorigin href="/super-agente-mng-nice/assets/vendor-uS-d4TUT.js">
-    
-    <!-- 🌟 SCRIPT DA SPLASH SCREEN ATUALIZADO -->
-    <script>
-        // Configuração da Splash Screen
-        const SPLASH_DURATION = 2200; // 2.2 segundos
-        const MIN_LOAD_TIME = 1500; // Mínimo 1.5 segundos
-        
-        // Inicialização
-        document.addEventListener('DOMContentLoaded', function() {
-            const splashScreen = document.getElementById('splash-screen');
-            const offlineScreen = document.getElementById('offline-screen');
-            const startTime = Date.now();
-            
-            // 🌟 VERIFICA SE ESTÁ OFFLINE
-            if (!navigator.onLine) {
-                // Mostra tela de "Sem Internet" após um tempo
-                setTimeout(() => {
-                    splashScreen.style.display = 'none';
-                    offlineScreen.style.display = 'flex';
-                    
-                    // Tenta reconectar a cada 5 segundos
-                    setInterval(() => {
-                        if (navigator.onLine) {
-                            location.reload();
-                        }
-                    }, 5000);
-                }, 3000);
-                return;
-            }
-            
-            // Adiciona classe para bloquear scroll
-            document.body.classList.add('splash-active');
-            
-            // Função para esconder splash
-            function hideSplash() {
-                const elapsed = Date.now() - startTime;
-                const remaining = Math.max(MIN_LOAD_TIME - elapsed, 0);
-                
-                setTimeout(() => {
-                    splashScreen.classList.add('hidden');
-                    
-                    // Remove completamente após transição
-                    setTimeout(() => {
-                        splashScreen.style.display = 'none';
-                        document.body.classList.remove('splash-active');
-                    }, 800);
-                    
-                    // Dispara evento customizado
-                    window.dispatchEvent(new CustomEvent('splashHidden'));
-                }, remaining);
-            }
-            
-            // Opção 1: Quando o app React carregar
-            if (window.ReactAppLoaded) {
-                hideSplash();
-            } else {
-                // Opção 2: Fallback - após tempo determinado
-                setTimeout(hideSplash, SPLASH_DURATION);
-                
-                // Opção 3: Quando a página terminar de carregar
-                window.addEventListener('load', hideSplash);
-            }
-            
-            // Fallback de segurança (nunca mais que 5 segundos)
-            setTimeout(() => {
-                if (splashScreen.style.display !== 'none') {
-                    splashScreen.classList.add('hidden');
-                    setTimeout(() => {
-                        splashScreen.style.display = 'none';
-                        document.body.classList.remove('splash-active');
-                    }, 500);
-                }
-            }, 5000);
-            
-            // 🌟 MONITORA MUDANÇAS DE CONEXÃO
-            window.addEventListener('offline', () => {
-                const root = document.getElementById('root');
-                if (root && root.innerHTML === '') {
-                    // App ainda não carregou, mostra tela offline
-                    splashScreen.style.display = 'none';
-                    offlineScreen.style.display = 'flex';
-                }
-            });
-        });
-        
-        // Para o app React comunicar que carregou
-        window.ReactAppLoaded = false;
-        window.addEventListener('reactAppReady', () => {
-            window.ReactAppLoaded = true;
-        });
-    </script>
+  <script type="module" crossorigin src="./assets/index-BGDO10cR.js"></script>
 </head>
-<body class="bg-gray-50 antialiased">
-    <!-- Splash Screen Tela Cheia -->
-    <div id="splash-screen">
-        <img src="/super-agente-mng-nice/public/icons/android-chrome-512x512.png" 
-             alt="Super Agente MNG" 
-             class="splash-logo">
-        <div class="splash-loading"></div>
-        <div class="splash-title">Super Agente MNG</div>
-    </div>
-    
-    <!-- 🌟 Tela de "Sem Internet" -->
-    <div id="offline-screen">
-        <div class="offline-icon">📡</div>
-        <div class="offline-message">Conecte-se à Internet</div>
-        <div class="offline-detail">
-            Este app precisa de conexão para carregar funcionalidades completas.
-            <br><br>
-            <small>Estilo básico já carregado. Aguardando React e Google Sign-In...</small>
-        </div>
-    </div>
-    
-    <!-- App Root -->
+<body class="bg-gray-50 antialiased overflow-hidden">
     <div id="root"></div>
-    
-    <!-- Script para notificar quando o React carregar -->
     <script>
-        // Monitora quando o script do React carrega
-        const reactScript = document.querySelector('script[src*="index-"]');
-        if (reactScript) {
-            reactScript.addEventListener('load', () => {
-                // Aguarda um pouco mais para garantir que React inicializou
-                setTimeout(() => {
-                    window.dispatchEvent(new CustomEvent('reactAppReady'));
-                }, 500);
-            });
-        }
-        
-        // Fallback para PWA/APK
-        if (window.matchMedia('(display-mode: standalone)').matches || 
-            window.navigator.standalone === true) {
-            console.log('App rodando em modo standalone (PWA/APK)');
-            // Pode adicionar comportamentos específicos para APK aqui
-        }
-        
-        // 🌟 DETECTA SE REACT NÃO CARREGOU (offline)
-        setTimeout(() => {
-            if (!window.ReactAppLoaded && document.getElementById('root').innerHTML === '') {
-                console.log('React não carregou - provavelmente offline');
-                // Não faz nada - a tela offline já está mostrando
-            }
-        }, 10000); // Espera 10 segundos
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js', { scope: '/' })
+            .then(reg => console.log('SW ativo'))
+            .catch(err => console.log('Erro no SW:', err));
+        });
+      }
     </script>
 </body>
 </html>
