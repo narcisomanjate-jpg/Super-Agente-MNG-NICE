@@ -65,7 +65,8 @@ import {
   getDoc, 
   updateDoc,
   collection,
-  serverTimestamp 
+  serverTimestamp,
+  enableIndexedDbPersistence
 } from 'firebase/firestore';
 
 // ⭐⭐ CONFIGURAÇÃO FIREBASE - USANDO VARIÁVEIS DE AMBIENTE ⭐⭐
@@ -135,7 +136,7 @@ const createAutomaticBackup = (user: UserProfile, clients: Client[], settings: A
 };
 
 // --- NOVAS FUNÇÕES: EXPORTAR/IMPORTAR DADOS LOCAIS ---
-const exportLocalData = (
+const exportLocalData = async (
   user: UserProfile, 
   clients: Client[], 
   settings: AppSettings, 
@@ -146,7 +147,7 @@ const exportLocalData = (
     const exportData = {
       app: "Super Agente - Backup Manual",
       exportDate: new Date().toISOString(),
-      version: "1.0",
+      version: "2.0",
       data: {
         user,
         clients,
@@ -157,16 +158,47 @@ const exportLocalData = (
     };
     
     const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
+    
+    // Nome do arquivo com data
+    const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const fileName = `backup_${dateStr}.json`;
+    
+    // Tentar usar File System Access API
+    try {
+      if ('showSaveFilePicker' in window) {
+        const fileHandle = await (window as any).showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{
+            description: 'Arquivos JSON',
+            accept: {'application/json': ['.json']},
+          }],
+        });
+        
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        
+        alert('✅ Backup exportado com sucesso!\nArquivo salvo na pasta "Gestao Super Agente".\nGuarde este arquivo em segurança.');
+        return true;
+      }
+    } catch (fsError: any) {
+      // Se o usuário cancelar ou API não disponível, usar método tradicional
+      if (fsError.name !== 'AbortError') {
+        console.log('API File System não disponível, usando download tradicional:', fsError);
+      }
+    }
+    
+    // Método tradicional (fallback)
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `backup_super_agente_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     
-    alert('✅ Backup exportado com sucesso! Guarde este arquivo em segurança.');
+    alert('✅ Backup exportado!\nO arquivo foi baixado. Por favor, mova-o para a pasta "Gestao Super Agente".\nGuarde este arquivo em segurança.');
     return true;
   } catch (error) {
     console.error('❌ Erro ao exportar dados:', error);
@@ -1060,7 +1092,7 @@ const DashboardView: React.FC<{
     return data;
   }, [clients]);
   
-  // Função para obter as últimas 4 atividades em ordem cronológica
+  // Função para obter as últimas 10 atividades em ordem cronológica
   const getRecentActivities = useMemo(() => {
     const allActivities: Array<{
       client: Client;
@@ -1079,6 +1111,19 @@ const DashboardView: React.FC<{
           });
         });
       }
+      
+      // Incluir também transações arquivadas nas atividades
+      if (client.archive && Array.isArray(client.archive)) {
+        client.archive.forEach(archive => {
+          archive.transactions.forEach(transaction => {
+            allActivities.push({
+              client,
+              transaction,
+              clientId: client.id
+            });
+          });
+        });
+      }
     });
     
     // Ordenar por data (mais recente primeiro)
@@ -1086,8 +1131,8 @@ const DashboardView: React.FC<{
       return new Date(b.transaction.date).getTime() - new Date(a.transaction.date).getTime();
     });
     
-    // Pegar apenas as 4 mais recentes
-    return sortedActivities.slice(0, 4);
+    // Pegar apenas as 10 mais recentes
+    return sortedActivities.slice(0, 10);
   }, [clients]);
   
   // Função para formatar data e hora
@@ -1278,13 +1323,23 @@ const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [showAutoSyncPrompt, setShowAutoSyncPrompt] = useState<boolean>(false);
 
-  // REMOVIDO: Referências para navegação por swipe
+  // Referências para navegação
   const mainRef = useRef<HTMLDivElement>(null);
 
-  // Navegação entre abas (mantido apenas para referência)
-  const views: ViewState[] = ['dashboard', 'clients', 'settings'];
-  
-  // REMOVIDO: Funções de swipe
+  // Ativar persistência offline do Firebase
+  useEffect(() => {
+    try {
+      enableIndexedDbPersistence(db).catch((err) => {
+        if (err.code === 'failed-precondition') {
+          console.warn('Múltiplas abas abertas, persistência desabilitada');
+        } else if (err.code === 'unimplemented') {
+          console.warn('Navegador não suporta persistência');
+        }
+      });
+    } catch (error) {
+      console.log('Modo offline ativo');
+    }
+  }, []);
 
   // Monitorar autenticação Firebase
   useEffect(() => {
@@ -1515,21 +1570,90 @@ const App: React.FC = () => {
   };
 
   // Função para importar dados locais
-  const handleImportLocalData = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    importLocalData(
-      file,
-      setUser,
-      setClients,
-      setSettings,
-      setManualFloatAdjustments,
-      setInvoiceCounter
-    );
-    
-    // Limpar o input para permitir reimportar o mesmo arquivo
-    event.target.value = '';
+  const handleImportLocalDataClick = async () => {
+    try {
+      let file;
+      
+      // Tentar usar File System Access API
+      if ('showOpenFilePicker' in window) {
+        try {
+          const [fileHandle] = await (window as any).showOpenFilePicker({
+            types: [{
+              description: 'Arquivos de Backup',
+              accept: {'application/json': ['.json']}
+            }],
+            startIn: 'documents' // Tenta começar na pasta Documents
+          });
+          
+          file = await fileHandle.getFile();
+        } catch (pickerError: any) {
+          // Usar input tradicional se o usuário cancelar ou API não disponível
+          if (pickerError.name !== 'AbortError') {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = (e: any) => {
+              const selectedFile = e.target.files?.[0];
+              if (selectedFile) {
+                // Verificar se está na pasta correta pelo nome
+                if (!selectedFile.name.includes('backup_') && !selectedFile.name.includes('Gestao')) {
+                  if (!confirm('Arquivo não parece ser da pasta "Gestao Super Agente".\nContinuar mesmo assim?')) {
+                    return;
+                  }
+                }
+                importLocalData(
+                  selectedFile,
+                  setUser,
+                  setClients,
+                  setSettings,
+                  setManualFloatAdjustments,
+                  setInvoiceCounter
+                );
+              }
+            };
+            input.click();
+            return;
+          } else {
+            // Usuário cancelou
+            return;
+          }
+        }
+      } else {
+        // Fallback tradicional
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = (e: any) => {
+          const selectedFile = e.target.files?.[0];
+          if (selectedFile) {
+            importLocalData(
+              selectedFile,
+              setUser,
+              setClients,
+              setSettings,
+              setManualFloatAdjustments,
+              setInvoiceCounter
+            );
+          }
+        };
+        input.click();
+        return;
+      }
+      
+      if (file) {
+        importLocalData(
+          file,
+          setUser,
+          setClients,
+          setSettings,
+          setManualFloatAdjustments,
+          setInvoiceCounter
+        );
+      }
+    } catch (error) {
+      console.error('❌ Erro ao importar dados:', error);
+      alert('❌ Erro ao selecionar arquivo.');
+    }
   };
 
   // 4. SALVAR DADOS AUTOMATICAMENTE quando houver alterações
@@ -1725,13 +1849,27 @@ const App: React.FC = () => {
     return balances;
   }, [clients, manualFloatAdjustments]);
 
+  // Lista de clientes filtrada e ordenada
   const filteredClients = useMemo(() => {
-    if (!searchQuery) return clients;
-    return clients.filter(c => 
+    // 1. Ordenar clientes por nome (ordem alfabética)
+    const sortedClients = [...clients].sort((a, b) => 
+      a.name.localeCompare(b.name, settings.language, { sensitivity: 'base' })
+    );
+    
+    if (!searchQuery) {
+      // Sem pesquisa: mostrar apenas clientes com saldo ≠ 0
+      return sortedClients.filter(client => {
+        const balance = getClientBalance(client);
+        return balance !== 0;
+      });
+    }
+    
+    // Com pesquisa: mostrar todos que correspondem, independente do saldo
+    return sortedClients.filter(c => 
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
       c.phone.includes(searchQuery)
     );
-  }, [clients, searchQuery]);
+  }, [clients, searchQuery, settings.language]);
 
   const isAuthView = false;
   const t = translations[settings.language];
@@ -1870,7 +2008,6 @@ const App: React.FC = () => {
     <div className={`fixed inset-0 flex items-center justify-center p-0 md:p-4 lg:p-8 transition-colors duration-500 ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
       <div 
         className={`w-full h-full max-w-md md:max-w-lg md:h-[90vh] md:max-h-[1000px] md:rounded-[3.5rem] app-shadow flex flex-col transition-all overflow-hidden relative ${isDark ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-900'} border border-white/5`}
-        // REMOVIDO: Eventos de touch/swipe
       >
         <main 
           className="flex-1 overflow-y-auto relative no-scrollbar"
@@ -2249,22 +2386,17 @@ const App: React.FC = () => {
                         Exportar Backup Completo
                       </button>
                       
-                      <label className="block">
-                        <div className="w-full p-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-3 active:scale-95 transition-transform cursor-pointer">
-                          <Upload className="w-5 h-5" />
-                          Importar Backup
-                        </div>
-                        <input 
-                          type="file" 
-                          accept=".json" 
-                          onChange={handleImportLocalData} 
-                          className="hidden" 
-                        />
-                      </label>
+                      <button 
+                        onClick={handleImportLocalDataClick}
+                        className="w-full p-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-3 active:scale-95 transition-transform"
+                      >
+                        <Upload className="w-5 h-5" />
+                        Importar Backup
+                      </button>
                     </div>
                     
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 text-center">
-                      Exporte seus dados para um arquivo JSON. Use para:<br/>
+                      Exporte seus dados para um arquivo JSON na pasta <strong>"Gestao Super Agente"</strong>.<br/>
                       • Backup manual • Trocar de celular • Compartilhar entre dispositivos
                     </p>
                   </div>
