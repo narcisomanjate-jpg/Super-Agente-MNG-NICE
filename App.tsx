@@ -8,10 +8,9 @@ import {
   Phone, 
   MessageSquare, 
   History, 
-  ChevronRight, 
+  ChevronLeft,
   ArrowUpRight, 
   ArrowDownLeft,
-  ChevronLeft,
   Moon,
   Sun,
   Globe,
@@ -30,7 +29,6 @@ import {
   Palette,
   UserPlus,
   Archive,
-  Copy,
   FileText,
   Cloud,
   CloudOff,
@@ -41,8 +39,8 @@ import {
   Download,
   Upload
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
-import { Client, Transaction, UserProfile, AppSettings, ViewState, PaymentMethod, FirebaseUser } from './types';
+import { AreaChart, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area } from 'recharts';
+import { Client, Transaction, UserProfile, AppSettings, ViewState, PaymentMethod } from './types';
 import { INITIAL_SETTINGS, translations } from './constants';
 import localforage from 'localforage';
 
@@ -62,10 +60,7 @@ import {
   getFirestore, 
   doc, 
   setDoc, 
-  getDoc, 
-  updateDoc,
-  collection,
-  serverTimestamp,
+  getDoc,
   enableIndexedDbPersistence
 } from 'firebase/firestore';
 
@@ -359,7 +354,7 @@ const syncDataToFirebase = async (
       settings,
       manualFloatAdjustments,
       invoiceCounter,
-      lastSynced: serverTimestamp(),
+      lastSynced: new Date().toISOString(),
       email: firebaseUser.email,
       syncEnabled: true
     };
@@ -653,32 +648,6 @@ const generateInvoicePDF = async (client: Client, archiveData: any, settings: Ap
   }
 };
 
-// Função para buscar contatos do celular
-const importContactsFromDevice = async (): Promise<Array<{ name: string; phone: string }>> => {
-  try {
-    // Verificar se a API de contatos está disponível
-    if ('contacts' in navigator && 'ContactsManager' in window) {
-      // @ts-ignore
-      const contactsManager = navigator.contacts as any;
-      const props = ['name', 'tel'];
-      const opts = { multiple: true };
-      
-      const contacts = await contactsManager.select(props, opts);
-      return contacts.map((contact: any) => ({
-        name: contact.name?.[0] || 'Sem nome',
-        phone: contact.tel?.[0] || ''
-      })).filter((c: any) => c.phone && c.phone.trim() !== '');
-    } else {
-      // Fallback: mostrar instruções
-      alert('Para importar contatos:\n\n1. Abra sua lista de contatos\n2. Copie os nomes e números\n3. Cole no campo de busca do app\n\nOu cadastre manualmente.');
-      return [];
-    }
-  } catch (error) {
-    console.log('API de contatos não disponível ou usuário cancelou');
-    return [];
-  }
-};
-
 // --- Helper Components ---
 
 const GlassCard: React.FC<{ children: React.ReactNode, className?: string, isDark: boolean }> = ({ children, className = "", isDark }) => (
@@ -699,25 +668,6 @@ const AddClientModal: React.FC<{
   const [name, setName] = useState(initialSearch || '');
   const [phone, setPhone] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [importingContacts, setImportingContacts] = useState(false);
-  
-  const handleImportContacts = async () => {
-    setImportingContacts(true);
-    try {
-      const contacts = await importContactsFromDevice();
-      if (contacts.length > 0) {
-        // Mostrar primeiro contato como sugestão
-        const firstContact = contacts[0];
-        setName(firstContact.name);
-        setPhone(firstContact.phone);
-        alert(`${contacts.length} contatos encontrados. Primeiro contato carregado.`);
-      }
-    } catch (error) {
-      console.error('Erro ao importar contatos:', error);
-    } finally {
-      setImportingContacts(false);
-    }
-  };
   
   const handleSave = () => {
     const trimmedName = name.trim();
@@ -756,16 +706,7 @@ const AddClientModal: React.FC<{
         )}
 
         <div className="space-y-4 mb-8">
-          <div className="flex gap-2">
-            <input type="text" placeholder={t.login_name} className={`flex-1 p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800 text-white placeholder-slate-500' : 'bg-gray-100 text-gray-900 placeholder-gray-400'}`} value={name} onChange={(e) => { setName(e.target.value); setError(null); }} />
-            <button 
-              onClick={handleImportContacts}
-              disabled={importingContacts}
-              className="p-4 bg-blue-600 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-1 hover:bg-blue-700 transition-colors disabled:opacity-50"
-            >
-              {importingContacts ? '...' : '📇'}
-            </button>
-          </div>
+          <input type="text" placeholder={t.login_name} className={`w-full p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800 text-white placeholder-slate-500' : 'bg-gray-100 text-gray-900 placeholder-gray-400'}`} value={name} onChange={(e) => { setName(e.target.value); setError(null); }} />
           <input type="tel" placeholder={t.login_phone} className={`w-full p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800 text-white placeholder-slate-500' : 'bg-gray-100 text-gray-900 placeholder-gray-400'}`} value={phone} onChange={(e) => { setPhone(e.target.value); setError(null); }} />
         </div>
         <div className="flex gap-4">
@@ -1066,7 +1007,7 @@ const TransactionModal: React.FC<{
       type: showTransactionModal.type, 
       amount: amt, 
       method: formData.method, 
-      date: dateWithTime, // Usar data com hora
+      date: dateWithTime,
       dueDate: formData.date, 
       description: formData.desc, 
       settled: showTransactionModal.type === 'Inflow' 
@@ -1172,24 +1113,21 @@ const DashboardView: React.FC<{
     // 1. Criamos os últimos 7 dias
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
-      d.setHours(0, 0, 0, 0); // Zera as horas para comparação exacta
+      d.setHours(0, 0, 0, 0);
       d.setDate(d.getDate() - i);
       
-      // Formato visual solicitado: 17/1, 18/1, etc.
       const label = `${d.getDate()}/${d.getMonth() + 1}`;
       let totalDoDia = 0;
 
-      // 2. Soma as transações (Corrigido para usar activeAccount)
+      // 2. Soma as transações
       clients.forEach(client => {
-        // Verificamos se existem transações na conta ativa
         if (client.activeAccount && Array.isArray(client.activeAccount)) {
           client.activeAccount.forEach(tx => {
             const txDate = new Date(tx.date);
-            txDate.setHours(0, 0, 0, 0); // Zera as horas para comparar apenas o dia
+            txDate.setHours(0, 0, 0, 0);
 
             if (txDate.getTime() === d.getTime()) {
               const valor = Number(tx.amount) || 0;
-              // No seu App, Inflow (Entrada) aumenta o saldo do agente
               if (tx.type === 'Inflow') {
                 totalDoDia += valor;
               } else {
@@ -1199,7 +1137,7 @@ const DashboardView: React.FC<{
           });
         }
       });
-
+      
       data.push({
         day: label,
         total: totalDoDia
@@ -1344,12 +1282,10 @@ const DashboardView: React.FC<{
                 onClick={() => { setSelectedClientId(activity.clientId); setView('client-detail'); }}
               >
                 <div className="flex-1 min-w-0">
-                  {/* 1. Nome do cliente em destaque no topo */}
                   <p className={`font-extrabold text-sm md:text-base truncate mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
                     {activity.client.name}
                   </p>
                   
-                  {/* 2. Descrição da transação com data e hora */}
                   <div className="space-y-1">
                     <p className="text-xs md:text-sm font-medium text-slate-600 dark:text-slate-400 truncate">
                       {activity.transaction.description || activity.transaction.type}
@@ -1364,7 +1300,6 @@ const DashboardView: React.FC<{
                   </div>
                 </div>
                 
-                {/* 3. Valor (mantido como estava) */}
                 <div className="flex flex-col items-end ml-4 flex-shrink-0">
                   <p className={`font-black text-base md:text-lg ${activity.transaction.type === 'Inflow' ? 'text-emerald-500' : 'text-rose-500'}`}>
                     {activity.transaction.type === 'Inflow' ? '+' : '-'}{activity.transaction.amount.toLocaleString()}
@@ -1396,7 +1331,6 @@ const App: React.FC = () => {
       ...INITIAL_SETTINGS.accountColors,
       'Mkesh': '#06b6d4'
     },
-    // Novo: contas inativas
     inactiveAccounts: [] as string[]
   });
   
@@ -1702,7 +1636,7 @@ const App: React.FC = () => {
               description: 'Arquivos de Backup',
               accept: {'application/json': ['.json']}
             }],
-            startIn: 'documents' // Tenta começar na pasta Documents
+            startIn: 'documents'
           });
           
           file = await fileHandle.getFile();
@@ -1715,7 +1649,6 @@ const App: React.FC = () => {
             input.onchange = (e: any) => {
               const selectedFile = e.target.files?.[0];
               if (selectedFile) {
-                // Verificar se está na pasta correta pelo nome
                 if (!selectedFile.name.includes('backup_') && !selectedFile.name.includes('Gestao')) {
                   if (!confirm('Arquivo não parece ser da pasta "Gestao Super Agente".\nContinuar mesmo assim?')) {
                     return;
@@ -1971,7 +1904,6 @@ const App: React.FC = () => {
 
   // Lista de clientes filtrada e ordenada
   const filteredClients = useMemo(() => {
-    // 1. Ordenar clientes por nome (ordem alfabética)
     const sortedClients = [...clients].sort((a, b) => 
       a.name.localeCompare(b.name, settings.language, { sensitivity: 'base' })
     );
@@ -2116,7 +2048,8 @@ const App: React.FC = () => {
       .replace('{currency}', settings.currency)
       .replace('{desc}', tx.description || tx.type);
     
-    window.location.href = `sms:${selectedClient.phone}?body=${encodeURIComponent(text)}`;
+    // Usar mensageiro padrão do celular (Google Messages)
+    window.open(`sms:${selectedClient.phone}?body=${encodeURIComponent(text)}`, '_blank');
   };
 
   // Função para mostrar opções da transação
@@ -2124,7 +2057,7 @@ const App: React.FC = () => {
     setSelectedTransactionForOptions(prev => prev === tx.id ? null : tx.id);
   };
 
-  // Funções para SMS
+  // Funções para SMS usando mensageiro padrão
   const handleSendSMSDebtReminder = () => {
     if (!selectedClient) return;
     
@@ -2133,7 +2066,8 @@ const App: React.FC = () => {
       .replace('{amount}', bal.toString())
       .replace('{currency}', settings.currency);
     
-    window.location.href = `sms:${selectedClient.phone}?body=${encodeURIComponent(text)}`;
+    // Usar mensageiro padrão do celular (Google Messages)
+    window.open(`sms:${selectedClient.phone}?body=${encodeURIComponent(text)}`, '_blank');
   };
 
   const handleSendStatementSMS = () => {
@@ -2155,7 +2089,8 @@ const App: React.FC = () => {
     const totalBalance = getClientBalance(selectedClient);
     statement += `\nSALDO ATUAL: ${totalBalance.toLocaleString()} ${settings.currency}`;
     
-    window.location.href = `sms:${selectedClient.phone}?body=${encodeURIComponent(statement)}`;
+    // Usar mensageiro padrão do celular (Google Messages)
+    window.open(`sms:${selectedClient.phone}?body=${encodeURIComponent(statement)}`, '_blank');
   };
 
   return (
@@ -2230,7 +2165,6 @@ const App: React.FC = () => {
 
           {view === 'client-detail' && selectedClient && (
              <div className="min-h-full flex flex-col animate-in slide-in-from-right-10 duration-500 no-scrollbar">
-                {/* Cabeçalho fixo */}
                 <div 
                   ref={clientHeaderRef}
                   className="p-8 pt-12 pb-8 rounded-b-[3.5rem] text-white relative shadow-2xl sticky top-0 z-30"
@@ -2260,7 +2194,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
                 
-                {/* Área rolável das transações */}
                 <div 
                   ref={clientTransactionsRef}
                   className="flex-1 px-4 md:px-6 pt-6 pb-32 space-y-6 overflow-y-auto no-scrollbar"
@@ -2319,7 +2252,6 @@ const App: React.FC = () => {
                                </button>
                              </div>
                              
-                             {/* Menu de opções da transação */}
                              {selectedTransactionForOptions === tx.id && (
                                <div className={`absolute right-4 top-16 z-10 rounded-2xl shadow-2xl animate-in fade-in slide-in-from-top-4 ${isDark ? 'bg-slate-800 border border-slate-700' : 'bg-white border border-slate-100'}`}>
                                  <div className="p-2 space-y-1">
@@ -2389,7 +2321,6 @@ const App: React.FC = () => {
                             <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                               {t.archive_date}: {new Date(archive.dateClosed).toLocaleDateString()}
                             </p>
-                            {/* Mostrar número da fatura com botão de impressão */}
                             {archive.invoiceNumber && (
                               <p className={`text-[9px] font-bold mt-1 flex items-center gap-2 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                                 <FileText className="w-3 h-3" />
@@ -2398,7 +2329,6 @@ const App: React.FC = () => {
                             )}
                           </div>
                         </div>
-                        {/* Botão para imprimir/preview da fatura */}
                         {archive.invoiceNumber && (
                           <button 
                             onClick={() => handleViewInvoice(selectedClient, archive)}
@@ -2537,7 +2467,7 @@ const App: React.FC = () => {
                   </div>
                </section>
 
-               {/* NOVA SEÇÃO: Backup/Restauração Local */}
+               {/* Backup/Restauração Local */}
                <section className="space-y-4">
                   <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Backup & Restauração Local</h3>
                   <div className={`p-5 md:p-6 rounded-[2.5rem] shadow-sm border space-y-4 ${isDark ? 'bg-slate-800/40 border-slate-700/50' : 'bg-white border-slate-100'}`}>
@@ -2937,7 +2867,7 @@ const App: React.FC = () => {
                 <p className="text-[11px] text-slate-500 font-bold text-center mb-8 px-2 leading-relaxed opacity-70">{settings.smsTemplates.confirmation.replace('{amount}', showSMSConfirmModal.tx?.amount.toLocaleString() || '0').replace('{currency}', settings.currency).replace('{desc}', showSMSConfirmModal.tx?.description || '')}</p>
                 <div className="flex gap-3">
                   <button onClick={() => setShowSMSConfirmModal({ show: false, tx: null })} className={`flex-1 p-4 rounded-2xl font-black uppercase tracking-widest text-[9px] transition-all hover:brightness-95 ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>{t.tx_cancel}</button>
-                  <button onClick={() => { if(selectedClient && showSMSConfirmModal.tx) { const text = settings.smsTemplates.confirmation.replace('{amount}', showSMSConfirmModal.tx.amount.toString()).replace('{currency}', settings.currency).replace('{desc}', showSMSConfirmModal.tx.description || showSMSConfirmModal.tx.type); window.location.href = `sms:${selectedClient.phone}?body=${encodeURIComponent(text)}`; } setShowSMSConfirmModal({ show: false, tx: null }); }} className="flex-1 p-4 text-white rounded-2xl font-black uppercase tracking-widest text-[9px] shadow-xl active:scale-95 transition-all hover:brightness-110" style={{ backgroundColor: settings.uiConfig.primaryColor }}>{t.sms_confirm_btn}</button>
+                  <button onClick={() => { if(selectedClient && showSMSConfirmModal.tx) { const text = settings.smsTemplates.confirmation.replace('{amount}', showSMSConfirmModal.tx.amount.toString()).replace('{currency}', settings.currency).replace('{desc}', showSMSConfirmModal.tx.description || showSMSConfirmModal.tx.type); window.open(`sms:${selectedClient.phone}?body=${encodeURIComponent(text)}`, '_blank'); } setShowSMSConfirmModal({ show: false, tx: null }); }} className="flex-1 p-4 text-white rounded-2xl font-black uppercase tracking-widest text-[9px] shadow-xl active:scale-95 transition-all hover:brightness-110" style={{ backgroundColor: settings.uiConfig.primaryColor }}>{t.sms_confirm_btn}</button>
                 </div>
              </div>
            </div>
@@ -2979,7 +2909,7 @@ const App: React.FC = () => {
                 
                 <div className="text-center">
                   <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                    Será aberto o aplicativo de mensagens padrão do seu celular.
+                    Será aberto o aplicativo de mensagens padrão do seu celular (Google Messages).
                   </p>
                 </div>
               </div>
