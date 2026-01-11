@@ -229,34 +229,97 @@ const importLocalData = (
           return;
         }
         
-        const { user, clients, settings, manualFloatAdjustments, invoiceCounter } = importedData.data;
+        const { user: importedUser, clients: importedClients, settings: importedSettings, manualFloatAdjustments: importedFloat, invoiceCounter: importedInvoiceCounter } = importedData.data;
         
-        // Confirmar substituição
-        if (!window.confirm('⚠️  Isso substituirá todos os seus dados atuais. Deseja continuar?')) {
+        // Carregar dados atuais
+        const [currentUser, currentClients, currentSettings, currentFloat, currentInvoiceCounter] = await Promise.all([
+          localforage.getItem<UserProfile>('agent_user'),
+          localforage.getItem<Client[]>('agent_clients'),
+          localforage.getItem<AppSettings>('agent_settings'),
+          localforage.getItem<Record<PaymentMethod, number>>('agent_float'),
+          localforage.getItem<number>('agent_invoice_counter')
+        ]);
+        
+        // Confirmar MESCLAGEM (não substituição)
+        if (!window.confirm('⚠️  Deseja MESCLAR os dados do backup com os dados atuais?\n\nClientes duplicados serão atualizados.\nNovos clientes serão adicionados.')) {
           resolve(false);
           return;
         }
         
+        // MESCLAR dados: usuário
+        const finalUser = importedUser || currentUser || { name: 'Agente', isFirstTime: false };
+        
+        // MESCLAR dados: clientes
+        const currentClientsMap = new Map((currentClients || []).map(c => [c.id, c]));
+        const importedClientsMap = new Map((importedClients || []).map(c => [c.id, c]));
+        
+        // Combinar mapas (imported sobrescreve current se IDs iguais)
+        const combinedClientsMap = new Map([...currentClientsMap, ...importedClientsMap]);
+        
+        // Para clientes sem ID (backups antigos), verificar por nome/telefone
+        const importedClientsWithoutId = (importedClients || []).filter(c => !c.id);
+        importedClientsWithoutId.forEach(importedClient => {
+          const existingClient = Array.from(combinedClientsMap.values()).find(c => 
+            c.name === importedClient.name || c.phone === importedClient.phone
+          );
+          
+          if (existingClient) {
+            // Atualizar cliente existente
+            combinedClientsMap.set(existingClient.id, {
+              ...existingClient,
+              ...importedClient,
+              id: existingClient.id // Manter ID original
+            });
+          } else {
+            // Adicionar novo cliente com ID gerado
+            combinedClientsMap.set(Math.random().toString(36).substring(2, 9), {
+              ...importedClient,
+              id: Math.random().toString(36).substring(2, 9)
+            });
+          }
+        });
+        
+        const finalClients = Array.from(combinedClientsMap.values());
+        
+        // MESCLAR dados: configurações (preferir as atuais)
+        const finalSettings = {
+          ...INITIAL_SETTINGS,
+          ...importedSettings,
+          ...currentSettings
+        };
+        
+        // MESCLAR dados: float adjustments
+        const finalFloat = {
+          ...(currentFloat || {}),
+          ...(importedFloat || {})
+        };
+        
+        // Usar o maior invoiceCounter
+        const finalInvoiceCounter = Math.max(
+          importedInvoiceCounter || 1,
+          currentInvoiceCounter || 1
+        );
+        
         // Atualizar estados
-        setUser(user || { name: 'Agente', isFirstTime: false });
-        setClients(clients || []);
-        setSettings(settings || INITIAL_SETTINGS);
-        setManualFloatAdjustments(manualFloatAdjustments || {});
-        setInvoiceCounter(invoiceCounter || 1);
+        setUser(finalUser);
+        setClients(finalClients);
+        setSettings(finalSettings);
+        setManualFloatAdjustments(finalFloat);
+        setInvoiceCounter(finalInvoiceCounter);
         
         // Salvar no storage local
         await Promise.all([
-          localforage.setItem('agent_user', user),
-          localforage.setItem('agent_clients', clients || []),
-          localforage.setItem('agent_settings', settings || INITIAL_SETTINGS),
-          localforage.setItem('agent_float', manualFloatAdjustments || {}),
-          localforage.setItem('agent_invoice_counter', invoiceCounter || 1)
+          localforage.setItem('agent_user', finalUser),
+          localforage.setItem('agent_clients', finalClients),
+          localforage.setItem('agent_settings', finalSettings),
+          localforage.setItem('agent_float', finalFloat),
+          localforage.setItem('agent_invoice_counter', finalInvoiceCounter)
         ]);
         
         // Criar backup automático com os novos dados
-        createAutomaticBackup(user, clients, settings, manualFloatAdjustments, invoiceCounter);
+        createAutomaticBackup(finalUser, finalClients, finalSettings, finalFloat, finalInvoiceCounter);
         
-        alert(`✅ Backup importado com sucesso!\n${clients?.length || 0} clientes restaurados.`);
+        alert(`✅ Backup MESCLADO com sucesso!\nTotal de clientes: ${finalClients.length}\nNovos clientes adicionados: ${importedClientsWithoutId.length}`);
         resolve(true);
       } catch (error) {
         console.error('❌ Erro ao importar dados:', error);
@@ -590,6 +653,32 @@ const generateInvoicePDF = async (client: Client, archiveData: any, settings: Ap
   }
 };
 
+// Função para buscar contatos do celular
+const importContactsFromDevice = async (): Promise<Array<{ name: string; phone: string }>> => {
+  try {
+    // Verificar se a API de contatos está disponível
+    if ('contacts' in navigator && 'ContactsManager' in window) {
+      // @ts-ignore
+      const contactsManager = navigator.contacts as any;
+      const props = ['name', 'tel'];
+      const opts = { multiple: true };
+      
+      const contacts = await contactsManager.select(props, opts);
+      return contacts.map((contact: any) => ({
+        name: contact.name?.[0] || 'Sem nome',
+        phone: contact.tel?.[0] || ''
+      })).filter((c: any) => c.phone && c.phone.trim() !== '');
+    } else {
+      // Fallback: mostrar instruções
+      alert('Para importar contatos:\n\n1. Abra sua lista de contatos\n2. Copie os nomes e números\n3. Cole no campo de busca do app\n\nOu cadastre manualmente.');
+      return [];
+    }
+  } catch (error) {
+    console.log('API de contatos não disponível ou usuário cancelou');
+    return [];
+  }
+};
+
 // --- Helper Components ---
 
 const GlassCard: React.FC<{ children: React.ReactNode, className?: string, isDark: boolean }> = ({ children, className = "", isDark }) => (
@@ -610,6 +699,25 @@ const AddClientModal: React.FC<{
   const [name, setName] = useState(initialSearch || '');
   const [phone, setPhone] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [importingContacts, setImportingContacts] = useState(false);
+  
+  const handleImportContacts = async () => {
+    setImportingContacts(true);
+    try {
+      const contacts = await importContactsFromDevice();
+      if (contacts.length > 0) {
+        // Mostrar primeiro contato como sugestão
+        const firstContact = contacts[0];
+        setName(firstContact.name);
+        setPhone(firstContact.phone);
+        alert(`${contacts.length} contatos encontrados. Primeiro contato carregado.`);
+      }
+    } catch (error) {
+      console.error('Erro ao importar contatos:', error);
+    } finally {
+      setImportingContacts(false);
+    }
+  };
   
   const handleSave = () => {
     const trimmedName = name.trim();
@@ -648,7 +756,16 @@ const AddClientModal: React.FC<{
         )}
 
         <div className="space-y-4 mb-8">
-          <input type="text" placeholder={t.login_name} className={`w-full p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800 text-white placeholder-slate-500' : 'bg-gray-100 text-gray-900 placeholder-gray-400'}`} value={name} onChange={(e) => { setName(e.target.value); setError(null); }} />
+          <div className="flex gap-2">
+            <input type="text" placeholder={t.login_name} className={`flex-1 p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800 text-white placeholder-slate-500' : 'bg-gray-100 text-gray-900 placeholder-gray-400'}`} value={name} onChange={(e) => { setName(e.target.value); setError(null); }} />
+            <button 
+              onClick={handleImportContacts}
+              disabled={importingContacts}
+              className="p-4 bg-blue-600 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-1 hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              {importingContacts ? '...' : '📇'}
+            </button>
+          </div>
           <input type="tel" placeholder={t.login_phone} className={`w-full p-4 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 ${isDark ? 'bg-slate-800 text-white placeholder-slate-500' : 'bg-gray-100 text-gray-900 placeholder-gray-400'}`} value={phone} onChange={(e) => { setPhone(e.target.value); setError(null); }} />
         </div>
         <div className="flex gap-4">
@@ -1301,6 +1418,7 @@ const App: React.FC = () => {
     show: boolean, 
     tx: Transaction | null 
   }>({ show: false, tx: null });
+  const [showSMSOptionsModal, setShowSMSOptionsModal] = useState(false);
   const [showFloatModal, setShowFloatModal] = useState(false);
   const [isUserBoxOpen, setIsUserBoxOpen] = useState(false);
   const [isAccountsBoxOpen, setIsAccountsBoxOpen] = useState(false);
@@ -1325,6 +1443,8 @@ const App: React.FC = () => {
 
   // Referências para navegação
   const mainRef = useRef<HTMLDivElement>(null);
+  const clientHeaderRef = useRef<HTMLDivElement>(null);
+  const clientTransactionsRef = useRef<HTMLDivElement>(null);
 
   // Ativar persistência offline do Firebase
   useEffect(() => {
@@ -2004,6 +2124,40 @@ const App: React.FC = () => {
     setSelectedTransactionForOptions(prev => prev === tx.id ? null : tx.id);
   };
 
+  // Funções para SMS
+  const handleSendSMSDebtReminder = () => {
+    if (!selectedClient) return;
+    
+    const bal = getClientBalance(selectedClient);
+    const text = settings.smsTemplates.debtReminder
+      .replace('{amount}', bal.toString())
+      .replace('{currency}', settings.currency);
+    
+    window.location.href = `sms:${selectedClient.phone}?body=${encodeURIComponent(text)}`;
+  };
+
+  const handleSendStatementSMS = () => {
+    if (!selectedClient) return;
+    
+    // Gerar extrato das transações
+    let statement = `Extrato de ${selectedClient.name}:\n\n`;
+    
+    selectedClient.activeAccount.forEach((tx, index) => {
+      const date = new Date(tx.date).toLocaleDateString('pt-MZ');
+      const time = formatTime(tx.date);
+      const type = tx.type === 'Inflow' ? 'Entrada' : 'Saída';
+      const sign = tx.type === 'Inflow' ? '+' : '-';
+      
+      statement += `${index + 1}. ${date} ${time} - ${tx.description || type}\n`;
+      statement += `   ${sign}${tx.amount.toLocaleString()} ${settings.currency} (${tx.method})\n\n`;
+    });
+    
+    const totalBalance = getClientBalance(selectedClient);
+    statement += `\nSALDO ATUAL: ${totalBalance.toLocaleString()} ${settings.currency}`;
+    
+    window.location.href = `sms:${selectedClient.phone}?body=${encodeURIComponent(statement)}`;
+  };
+
   return (
     <div className={`fixed inset-0 flex items-center justify-center p-0 md:p-4 lg:p-8 transition-colors duration-500 ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
       <div 
@@ -2076,41 +2230,52 @@ const App: React.FC = () => {
 
           {view === 'client-detail' && selectedClient && (
              <div className="min-h-full flex flex-col animate-in slide-in-from-right-10 duration-500 no-scrollbar">
-                <div className="p-8 pt-12 pb-12 rounded-b-[3.5rem] text-white relative shadow-2xl" style={{ backgroundColor: settings.uiConfig.primaryColor }}>
+                {/* Cabeçalho fixo */}
+                <div 
+                  ref={clientHeaderRef}
+                  className="p-8 pt-12 pb-8 rounded-b-[3.5rem] text-white relative shadow-2xl sticky top-0 z-30"
+                  style={{ backgroundColor: settings.uiConfig.primaryColor }}
+                >
                   <button onClick={() => setView('clients')} className="absolute left-6 top-12 p-2 md:p-3 bg-white/10 rounded-2xl hover:bg-white/20 transition-all"><ChevronLeft className="w-5 h-5 md:w-6 md:h-6" /></button>
                   <button onClick={() => setShowEditClient(true)} className="absolute right-6 top-12 p-2 md:p-3 bg-white/10 rounded-2xl hover:bg-white/20 transition-all"><Edit2 className="w-5 h-5 md:w-6 md:h-6" /></button>
-                  <div className="flex flex-col items-center mt-6">
-                    <div className="w-20 h-20 md:w-24 md:h-24 bg-white/15 backdrop-blur-md rounded-[2.5rem] flex items-center justify-center text-3xl md:text-4xl font-black mb-4">{selectedClient.name.split(' ').map(n => n[0]).join('').toUpperCase()}</div>
-                    <h2 className="text-2xl md:text-3xl font-black tracking-tight text-center px-4">{selectedClient.name}</h2>
+                  <div className="flex flex-col items-center mt-2">
+                    <div className="w-16 h-16 md:w-20 md:h-20 bg-white/15 backdrop-blur-md rounded-[2rem] flex items-center justify-center text-2xl md:text-3xl font-black mb-3">{selectedClient.name.split(' ').map(n => n[0]).join('').toUpperCase()}</div>
+                    <h2 className="text-xl md:text-2xl font-black tracking-tight text-center px-4 truncate max-w-full">{selectedClient.name}</h2>
                     <p className="opacity-70 text-xs md:text-sm font-bold mt-1">{selectedClient.phone}</p>
-                    <div className="grid grid-cols-4 gap-2 md:gap-4 w-full px-2 md:px-4 mt-8">
+                    <div className="grid grid-cols-4 gap-2 md:gap-4 w-full px-2 md:px-4 mt-6">
                       {[
-                        {icon: <Phone />, label: 'Ligar', action: () => window.location.href=`tel:${selectedClient.phone}`}, 
-                        {icon: <MessageSquare />, label: 'Cobrar', action: () => { const bal = getClientBalance(selectedClient); const text = settings.smsTemplates.debtReminder.replace('{amount}', bal.toString()).replace('{currency}', settings.currency); window.location.href = `sms:${selectedClient.phone}?body=${encodeURIComponent(text)}`; }}, 
+                        {icon: <Phone />, label: 'Ligar', action: () => window.open(`tel:${selectedClient.phone}`, '_blank')}, 
+                        {icon: <MessageSquare />, label: 'Cobrar', action: () => setShowSMSOptionsModal(true)}, 
                         {icon: <History />, label: 'Arquivo', action: () => setView('client-archive')}, 
                         {icon: <FileText />, label: 'Fechar', action: () => handleCloseAccount(selectedClient)}
                       ].map((btn, i) => (
                         <button key={i} onClick={btn.action} className="flex flex-col items-center gap-2 group">
-                          <div className="w-12 h-12 md:w-14 md:h-14 bg-white/15 rounded-2xl flex items-center justify-center text-white shadow-xl group-active:scale-90 transition-all">
-                            {React.cloneElement(btn.icon as React.ReactElement<any>, { className: 'w-5 h-5 md:w-6 md:h-6' })}
+                          <div className="w-10 h-10 md:w-12 md:h-12 bg-white/15 rounded-2xl flex items-center justify-center text-white shadow-xl group-active:scale-90 transition-all">
+                            {React.cloneElement(btn.icon as React.ReactElement<any>, { className: 'w-4 h-4 md:w-5 md:h-5' })}
                           </div>
-                          <span className="text-[8px] md:text-[10px] font-black uppercase tracking-widest opacity-80">{btn.label}</span>
+                          <span className="text-[7px] md:text-[9px] font-black uppercase tracking-widest opacity-80">{btn.label}</span>
                         </button>
                       ))}
                     </div>
                   </div>
                 </div>
-                <div className="flex-1 px-4 md:px-6 pt-10 pb-32 space-y-6">
-                   <div className="flex justify-between items-end">
+                
+                {/* Área rolável das transações */}
+                <div 
+                  ref={clientTransactionsRef}
+                  className="flex-1 px-4 md:px-6 pt-6 pb-32 space-y-6 overflow-y-auto no-scrollbar"
+                >
+                   <div className="flex justify-between items-end mb-4 sticky top-0 z-20 bg-inherit pt-2">
                       <h3 className={`font-black uppercase tracking-widest text-[10px] md:text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{t.client_active_ledger}</h3>
                       <div className="text-right">
                         <p className="text-[8px] md:text-[10px] text-slate-400 font-black uppercase tracking-widest">{t.client_debt}</p>
-                        <p className={`text-2xl md:text-3xl font-black ${getClientBalance(selectedClient) > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        <p className={`text-xl md:text-2xl font-black ${getClientBalance(selectedClient) > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
                           {getClientBalance(selectedClient).toLocaleString()} 
                           <span className="text-xs font-bold">{settings.currency}</span>
                         </p>
                       </div>
                    </div>
+                   
                    {selectedClient.activeAccount.length === 0 ? (
                     <div className="py-20 flex flex-col items-center justify-center opacity-40">
                       <LayoutDashboard className="w-14 h-14 md:w-16 md:h-16 mb-4" />
@@ -2776,6 +2941,50 @@ const App: React.FC = () => {
                 </div>
              </div>
            </div>
+        )}
+
+        {/* Modal de Opções de SMS */}
+        {showSMSOptionsModal && selectedClient && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-lg">
+            <div className={`${isDark ? 'bg-slate-900 border border-white/5' : 'bg-white'} w-full max-w-[340px] rounded-[3.5rem] p-8 shadow-2xl animate-in zoom-in-95 duration-200`}>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-black">Enviar SMS</h3>
+                <button onClick={() => setShowSMSOptionsModal(false)} className="p-2 hover:bg-slate-800/20 rounded-xl transition-colors">
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="space-y-4 mb-8">
+                <button 
+                  onClick={() => {
+                    handleSendSMSDebtReminder();
+                    setShowSMSOptionsModal(false);
+                  }}
+                  className="w-full p-5 bg-blue-600 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-3 active:scale-95 transition-transform hover:brightness-110"
+                >
+                  <MessageSquare className="w-5 h-5" />
+                  Enviar Cobrança
+                </button>
+                
+                <button 
+                  onClick={() => {
+                    handleSendStatementSMS();
+                    setShowSMSOptionsModal(false);
+                  }}
+                  className="w-full p-5 bg-emerald-600 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-3 active:scale-95 transition-transform hover:brightness-110"
+                >
+                  <FileText className="w-5 h-5" />
+                  Enviar Extrato
+                </button>
+                
+                <div className="text-center">
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                    Será aberto o aplicativo de mensagens padrão do seu celular.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Modal de Sincronização Automática */}
